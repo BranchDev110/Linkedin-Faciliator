@@ -13,7 +13,10 @@
     "dev:web": "npm run dev --workspace=web",
     "build:api": "npm run build --workspace=api",
     "build:web": "npm run build --workspace=web",
-    "build:extension": "npm run build --workspace=extension"
+    "build:extension": "npm run build --workspace=extension",
+    "docker:up": "docker compose up -d --build",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f app"
   },
   "engines": {
     "node": ">=18"

@@ -1,0 +1,19 @@
+# Production overrides — use with:
+#   docker compose -f docker-compose.yml -f docker-compose.production.yml up -d
+
+services:
+  app:
+    image: ${APP_IMAGE:-ghcr.io/branchdev110/linkedin-faciliator:production}
+    container_name: li-facilitator-production-app
+    env_file:
+      - ${ENV_FILE:-./deploy/env/production.env}
+    ports:
+      - "${APP_PORT:-3002}:3001"
+
+  mongo:
+    container_name: li-facilitator-production-mongo
+    volumes:
+      - production_mongo_data:/data/db
+
+volumes:
+  production_mongo_data:

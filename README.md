@@ -181,6 +181,26 @@ npm run build:web          # Build dashboard
 npm run build:extension    # Build extension to extension/dist/
 ```
 
+## Deployment & CI/CD
+
+| Branch | Environment | Auto-deploy |
+|--------|-------------|-------------|
+| `staging` | Staging VPS | Yes |
+| `production` | Production VPS | Yes |
+
+**Developer workflow:** branch from `staging` → PR to `staging` → test on staging → PR `staging` → `production` (maintainers only).
+
+- [Branching workflow](docs/BRANCHING.md)
+- [Docker + VPS deployment](docs/DEPLOYMENT.md)
+
+Quick local Docker run:
+
+```bash
+cp .env.example .env   # set JWT_SECRET, OPENAI_API_KEY
+npm run docker:up
+open http://localhost:3001/dashboard
+```
+
 ## License
 
 Private / unlicensed unless otherwise specified by the repository owner.

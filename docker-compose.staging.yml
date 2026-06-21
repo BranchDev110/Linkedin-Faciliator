@@ -1,0 +1,19 @@
+# Staging overrides — use with:
+#   docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d
+
+services:
+  app:
+    image: ${APP_IMAGE:-ghcr.io/branchdev110/linkedin-faciliator:staging}
+    container_name: li-facilitator-staging-app
+    env_file:
+      - ${ENV_FILE:-./deploy/env/staging.env}
+    ports:
+      - "${APP_PORT:-3001}:3001"
+
+  mongo:
+    container_name: li-facilitator-staging-mongo
+    volumes:
+      - staging_mongo_data:/data/db
+
+volumes:
+  staging_mongo_data:
