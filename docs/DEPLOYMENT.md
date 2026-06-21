@@ -87,21 +87,62 @@ sudo nginx -t && sudo systemctl reload nginx
 sudo certbot --nginx -d app.your-domain.com
 ```
 
-## 6. GitHub Actions secrets
+## 6. GitHub Actions secrets (auto-deploy)
 
-**Settings → Secrets and variables → Actions:**
+When you **push or merge to `production`**, GitHub Actions will:
 
-| Secret | Example |
-|--------|---------|
-| `PRODUCTION_HOST` | VPS IP or hostname |
-| `PRODUCTION_USER` | `deploy` |
-| `PRODUCTION_SSH_KEY` | Private SSH key (PEM) |
-| `PRODUCTION_APP_PATH` | `/opt/li-facilitator-production` |
+1. Build the Docker image  
+2. Push to `ghcr.io/branchdev110/linkedin-faciliator:production`  
+3. SSH into the VPS, `git pull`, pull the new image, and restart the stack  
+
+### One-time setup checklist
+
+Print the full checklist:
+
+```bash
+bash deploy/scripts/setup-github-deploy.sh
+```
+
+**Settings → Secrets and variables → Actions** (or **Environments → production**):
+
+| Secret | Example | Required |
+|--------|---------|----------|
+| `PRODUCTION_HOST` | `83.229.67.146` | Yes |
+| `PRODUCTION_USER` | `root` (or `deploy`) | Yes |
+| `PRODUCTION_SSH_KEY` | Private SSH key (PEM) for Actions → VPS | Yes |
+| `PRODUCTION_APP_PATH` | `/opt/li-facilitator-production` | Yes |
+| `GHCR_READ_TOKEN` | GitHub PAT with `read:packages` | Yes* |
+
+\*Or make the GHCR package **public** (GitHub → Packages → package → Change visibility) and skip `GHCR_READ_TOKEN`.
+
+### VPS requirements for CI/CD
+
+1. **SSH access** — Actions connects with `PRODUCTION_SSH_KEY`  
+2. **Git pull** — add a read-only [deploy key](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/managing-deploy-keys) on the repo for the VPS user  
+3. **`deploy/env/production.env`** — already on the VPS (not in git); survives deploys  
+4. **Docker** — installed and the deploy user can run `docker compose`  
+
+### Test the pipeline
+
+```bash
+git checkout production
+git merge main          # after testing on main
+git push origin production
+```
+
+Then open **GitHub → Actions → Deploy Production** and watch the run.
+
+On success, verify on the VPS:
+
+```bash
+curl http://127.0.0.1:3002/api/health
+```
+
+### Optional: require approval before deploy
 
 **Settings → Environments → `production`**
 
-- Add the same secrets if you prefer environment-scoped secrets
-- Enable **Required reviewers** so deploy waits for approval after merge
+- Enable **Required reviewers** so deploy waits for approval after merge to `production`
 
 ## 7. What triggers deploy
 
