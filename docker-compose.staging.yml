@@ -1,5 +1,6 @@
-# Staging overrides — use with:
-#   docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d
+# Optional local Docker stack for staging (main branch) — not deployed to a VPS.
+# Use with:
+#   docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d --build
 
 services:
   app:

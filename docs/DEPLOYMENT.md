@@ -1,51 +1,44 @@
 # Deployment guide (Docker + Ubuntu VPS)
 
-This guide covers Docker deployment to an Ubuntu VPS with **staging** and **production** environments driven by GitHub Actions.
+Production runs on a **single Ubuntu VPS**. **`main` is staging** (local + CI only). Only **`production`** deploys to the server.
 
-## Architecture
+## Flow
 
 ```
-GitHub (staging branch)  ──►  GHCR image :staging  ──►  Staging VPS (:3001)
-GitHub (production branch) ──► GHCR image :production ──► Production VPS (:3002)
-                                      │
-                                      ├── app (NestJS + React SPA)
-                                      └── mongo (MongoDB 7)
+Local dev (staging on your machine)
+        │
+        ▼
+   PR → main (staging branch)     CI only — no VPS deploy
+        │
+        ▼
+   PR → production                 maintainers only
+        │
+        ▼
+GitHub Actions → GHCR → SSH → Ubuntu VPS
 ```
 
-Nginx on the host terminates TLS and proxies to the app container.
+## Architecture on the VPS
+
+```
+Internet ──► Nginx (HTTPS) ──► Docker app (:3001) ──► MongoDB container
+```
+
+One compose stack per server at e.g. `/opt/li-facilitator-production`.
 
 ## 1. Prepare the Ubuntu VPS
 
-Run once on a fresh Ubuntu 22.04/24.04 server (as root):
+Run once on Ubuntu 22.04/24.04 (as root):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/BranchDev110/Linkedin-Faciliator/staging/deploy/scripts/setup-vps.sh | bash
+git clone git@github.com:BranchDev110/Linkedin-Faciliator.git /tmp/li-facilitator
+bash /tmp/li-facilitator/deploy/scripts/setup-vps.sh
 ```
 
-Or clone the repo and run `sudo bash deploy/scripts/setup-vps.sh`.
-
-### Two environments on one VPS
-
-| Path | Branch | App port (host) | Domain example |
-|------|--------|-----------------|----------------|
-| `/opt/li-facilitator-staging` | `staging` | 3001 | `staging.your-domain.com` |
-| `/opt/li-facilitator-production` | `production` | 3002 | `app.your-domain.com` |
-
-You can also use **separate VPS instances** for stronger isolation (recommended for production).
-
-## 2. Clone and configure on the VPS
+## 2. Clone production branch on the VPS
 
 As the deploy user:
 
 ```bash
-# Staging
-git clone git@github.com:BranchDev110/Linkedin-Faciliator.git /opt/li-facilitator-staging
-cd /opt/li-facilitator-staging
-git checkout staging
-cp deploy/env/staging.env.example deploy/env/staging.env
-nano deploy/env/staging.env
-
-# Production (same or different server)
 git clone git@github.com:BranchDev110/Linkedin-Faciliator.git /opt/li-facilitator-production
 cd /opt/li-facilitator-production
 git checkout production
@@ -53,121 +46,101 @@ cp deploy/env/production.env.example deploy/env/production.env
 nano deploy/env/production.env
 ```
 
-### Required env vars
+### Required env vars (`deploy/env/production.env`)
 
 | Variable | Description |
 |----------|-------------|
-| `WEB_URL` | Public URL users open in the browser |
-| `API_URL` | Same as `WEB_URL` (API is served on same host) |
-| `JWT_SECRET` | Long random string (unique per environment) |
-| `OPENAI_API_KEY` | OpenAI key for AI features |
-| `MONGODB_URI` | Use `mongodb://mongo:27017/...` inside Docker Compose |
+| `WEB_URL` | Public URL, e.g. `https://app.your-domain.com` |
+| `API_URL` | Same as `WEB_URL` |
+| `JWT_SECRET` | Long random secret |
+| `OPENAI_API_KEY` | OpenAI API key |
+| `MONGODB_URI` | `mongodb://mongo:27017/li-facilitator-production` |
 
-## 3. Pull images from GitHub Container Registry
+## 3. Authenticate to GitHub Container Registry
 
-The VPS must authenticate to GHCR:
-
-1. Create a GitHub **Personal Access Token** with `read:packages`.
-2. On the VPS:
-   ```bash
-   echo "YOUR_GITHUB_PAT" | docker login ghcr.io -u YOUR_GITHUB_USERNAME --password-stdin
-   ```
-
-## 4. Manual deploy (first time)
+On the VPS:
 
 ```bash
-cd /opt/li-facilitator-staging
-bash deploy/scripts/remote-deploy.sh staging
+echo "YOUR_GITHUB_PAT" | docker login ghcr.io -u YOUR_GITHUB_USERNAME --password-stdin
 ```
+
+Use a PAT with **`read:packages`**.
+
+## 4. First manual deploy
 
 ```bash
 cd /opt/li-facilitator-production
 bash deploy/scripts/remote-deploy.sh production
+curl http://127.0.0.1:3002/api/health
 ```
 
-Verify:
-
-```bash
-curl http://127.0.0.1:3001/api/health   # staging
-curl http://127.0.0.1:3002/api/health   # production
-```
+After CI is configured, future deploys happen automatically when you merge to **`production`**.
 
 ## 5. Nginx + HTTPS
 
 ```bash
 sudo apt install -y nginx certbot python3-certbot-nginx
 sudo cp deploy/nginx/li-facilitator.conf.example /etc/nginx/sites-available/li-facilitator
-sudo nano /etc/nginx/sites-available/li-facilitator   # update domains
+sudo nano /etc/nginx/sites-available/li-facilitator   # set your domain, port 3002
 sudo ln -s /etc/nginx/sites-available/li-facilitator /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
-sudo certbot --nginx -d staging.your-domain.com -d app.your-domain.com
+sudo certbot --nginx -d app.your-domain.com
 ```
 
 ## 6. GitHub Actions secrets
 
-Repository **Settings → Secrets and variables → Actions**:
-
-### Staging
+**Settings → Secrets and variables → Actions:**
 
 | Secret | Example |
 |--------|---------|
-| `STAGING_HOST` | `203.0.113.10` |
-| `STAGING_USER` | `deploy` |
-| `STAGING_SSH_KEY` | Private SSH key (PEM) |
-| `STAGING_APP_PATH` | `/opt/li-facilitator-staging` |
-
-### Production
-
-| Secret | Example |
-|--------|---------|
-| `PRODUCTION_HOST` | `203.0.113.20` |
+| `PRODUCTION_HOST` | VPS IP or hostname |
 | `PRODUCTION_USER` | `deploy` |
 | `PRODUCTION_SSH_KEY` | Private SSH key (PEM) |
 | `PRODUCTION_APP_PATH` | `/opt/li-facilitator-production` |
 
-### GitHub Environments (recommended)
+**Settings → Environments → `production`**
 
-Create **staging** and **production** environments under **Settings → Environments**.
+- Add the same secrets if you prefer environment-scoped secrets
+- Enable **Required reviewers** so deploy waits for approval after merge
 
-For **production**, enable **Required reviewers** so deploy jobs wait for approval after merge.
+## 7. What triggers deploy
 
-## 7. CI/CD behavior
+| Event | Result |
+|-------|--------|
+| PR → `main` or `production` | CI build + Docker smoke test only |
+| Push / merge to **`production`** | Build image → push GHCR → deploy VPS |
 
-| Event | Workflow | Result |
-|-------|----------|--------|
-| PR → `staging` or `production` | `CI` | Build + Docker smoke test |
-| Push to `staging` | `Deploy Staging` | Push `:staging` image → deploy staging VPS |
-| Push to `production` | `Deploy Production` | Push `:production` image → deploy production VPS |
+Pushes to **`main` (staging) do not deploy** to the server.
 
-## 8. Local Docker development
+## 8. Local staging (`main`)
+
+**`main` is your staging branch.** Test there before promoting to production:
 
 ```bash
-cp .env.example .env
-# edit JWT_SECRET, OPENAI_API_KEY
+# Option A — native (closest to daily dev)
+npm run dev:api
+npm run dev:web
 
-docker compose up -d --build
+# Option B — Docker (closer to production stack)
+cp .env.example .env
+npm run docker:up
 open http://localhost:3001/dashboard
 ```
 
+Pushes to **`main` do not deploy** to the VPS. Only **`production`** does.
+
 ## 9. Troubleshooting
 
-**Container unhealthy**
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.staging.yml logs app
+cd /opt/li-facilitator-production
+docker compose -f docker-compose.yml -f docker-compose.production.yml logs app
+docker compose -f docker-compose.yml -f docker-compose.production.yml ps
 ```
 
-**Cannot pull GHCR image**
-```bash
-docker login ghcr.io
-docker pull ghcr.io/branchdev110/linkedin-faciliator:staging
-```
-
-**MongoDB data persistence** — data lives in Docker volumes (`staging_mongo_data`, `production_mongo_data`). Back up with:
-```bash
-docker compose -f docker-compose.yml -f docker-compose.production.yml exec mongo \
-  mongodump --archive=/data/db/backup.archive
-```
-
-## Related docs
+## Related
 
 - [Branching workflow](./BRANCHING.md)
+
+## Optional: `docker-compose.staging.yml`
+
+Optional **local** Docker override for testing the staging line on your machine (same idea as `main`). **Not deployed to any server.** Production VPS uses `docker-compose.production.yml` only.

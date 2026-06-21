@@ -183,12 +183,12 @@ npm run build:extension    # Build extension to extension/dist/
 
 ## Deployment & CI/CD
 
-| Branch | Environment | Auto-deploy |
-|--------|-------------|-------------|
-| `staging` | Staging VPS | Yes |
-| `production` | Production VPS | Yes |
+| Branch | Role | Auto-deploy to VPS? |
+|--------|------|---------------------|
+| **`main`** | **Staging** — integration, PR target, test locally | **No** |
+| **`production`** | **Production** — live on Ubuntu VPS | **Yes** |
 
-**Developer workflow:** branch from `staging` → PR to `staging` → test on staging → PR `staging` → `production` (maintainers only).
+There is no separate `staging` branch: **`main` is staging.** Develop locally → PR to `main` → when ready, PR `main` → `production` → CI/CD deploys to the VPS.
 
 - [Branching workflow](docs/BRANCHING.md)
 - [Docker + VPS deployment](docs/DEPLOYMENT.md)

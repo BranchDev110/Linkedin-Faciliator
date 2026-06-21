@@ -1,104 +1,104 @@
 # Branching & release workflow
 
-LI Facilitator uses a **two-branch deployment model**:
+This repo uses **two long-lived branches**. There is no separate branch named `staging` — **`main` is staging**.
 
-| Branch | Environment | Who merges | Deploys to |
-|--------|-------------|------------|------------|
-| `staging` | Staging / dev integration | All developers (via PR) | Staging VPS |
-| `production` | Live production | Release managers only | Production VPS |
+| Branch | Also known as | Deploys to VPS? |
+|--------|---------------|-----------------|
+| **`main`** | **Staging** — integration & pre-release | **No** |
+| **`production`** | **Production** — live system | **Yes** |
 
-`main` is kept for historical compatibility. **Use `staging` and `production` for all new work.**
+Staging happens on **`main` + your local machine**, not on a second server.
 
-## Daily developer flow
+## Model
 
 ```
-staging ── feature/ABC ── PR ──► staging ── auto deploy staging
+feature/*  ──PR──►  main (staging)  ──PR──►  production  ──CI/CD──►  Ubuntu VPS
+                         │
+                   test locally
+                   CI on every PR
 ```
 
-1. Branch from **`staging`**:
+- **`main`** = where all developers merge day-to-day work (this is your **staging** line)
+- **`production`** = what runs on the VPS; only maintainers merge here
+
+You do **not** need a branch called `staging` or a staging VPS. **`main` fills that role.**
+
+## Daily developer flow (staging)
+
+1. Branch from **`main`**:
    ```bash
-   git checkout staging
-   git pull origin staging
+   git checkout main
+   git pull origin main
    git checkout -b feature/my-change
    ```
-2. Commit and push your branch.
-3. Open a **Pull Request → `staging`**.
+2. Develop and test **locally** (your staging environment):
+   ```bash
+   npm run dev:api
+   npm run dev:web
+   # or: npm run docker:up
+   ```
+3. Push and open a **Pull Request → `main`**.
 4. CI runs (build API, web, extension, Docker smoke test).
-5. After review, merge the PR.
-6. GitHub Actions **deploys to the staging VPS** automatically.
+5. After review, merge to **`main`**.
 
-## Production release flow
+Code is now on **staging (`main`)** but **not** on the VPS yet.
 
-```
-staging ── PR ──► production ── auto deploy production
-```
+## Production release (VPS deploy)
 
 Only maintainers / release managers:
 
-1. Open a **Pull Request: `staging` → `production`** when staging is verified.
-2. Require approval from a [CODEOWNER](../.github/CODEOWNERS).
+1. When **`main`** is verified locally, open **PR: `main` → `production`**.
+2. Require approval from a [CODEOWNER](../.github/CODEOWNERS) (recommended).
 3. Merge to **`production`**.
-4. GitHub Actions **deploys to the production VPS** automatically.
+4. GitHub Actions builds the Docker image and **deploys to the Ubuntu VPS**.
 
-Developers should **not** push directly to `production`.
-
-## One-time branch setup (repo admin)
-
-After cloning, create the long-lived branches from current `main`:
+## One-time setup
 
 ```bash
 git checkout main
 git pull origin main
 
-git checkout -b staging
-git push -u origin staging
-
 git checkout -b production
 git push -u origin production
 ```
 
-### GitHub repository settings
+### GitHub settings
 
-1. **Settings → General → Default branch** → set to **`staging`** (so new PRs target staging by default).
-2. **Settings → Branches → Branch protection rules**
-
-   **`staging`**
+1. **Default branch** → **`main`** (staging — all feature PRs target this).
+2. **Branch protection — `main` (staging)**
    - Require pull request before merging
-   - Require status checks: `CI / build`, `CI / docker`
-   - Allow developer merges after review
-
-   **`production`**
+   - Require CI checks: `CI / build`, `CI / docker`
+3. **Branch protection — `production`**
    - Require pull request before merging
-   - Require approvals (1+)
-   - Require review from Code Owners
-   - Require status checks: `CI / build`, `CI / docker`
-   - Restrict who can push (release managers only)
-   - Do **not** allow bypassing settings
-
-3. **Settings → Environments**
-   - Create **`staging`** environment (optional secrets override)
-   - Create **`production`** environment with **required reviewers** before deploy job runs
+   - Require approvals / Code Owner review
+   - Restrict who can push
+4. **Environment `production`**
+   - Optional: required reviewers before deploy runs
 
 ## Hotfixes
-
-For urgent production fixes:
 
 ```bash
 git checkout production
 git pull origin production
 git checkout -b hotfix/critical-fix
-# fix, commit, PR to production
-# then back-merge production → staging
+# fix, test locally, PR → production
+# then back-merge production → main (keep staging in sync)
 ```
 
-## Chrome extension builds
+## Chrome extension
 
-The extension is built in CI for verification. To point the extension at staging or production:
+Point the extension at production when releasing:
 
 ```bash
-WEB_URL=https://staging.your-domain.com \
-API_URL=https://staging.your-domain.com \
+WEB_URL=https://app.your-domain.com \
+API_URL=https://app.your-domain.com \
 npm run build:extension
 ```
 
-Distribute the built `extension/dist/` folder to testers or publish a release artifact separately.
+For local staging against your machine:
+
+```bash
+WEB_URL=http://localhost:5173 \
+API_URL=http://localhost:3001 \
+npm run build:extension
+```
