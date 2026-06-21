@@ -1,0 +1,30 @@
+KEVIN GRANT
+Senior Software Engineer
+
+kevin.grant@email.com | (555) 123-4567 | linkedin.com/in/kevingrant | San Francisco, CA
+
+
+PROFESSIONAL SUMMARY
+{{summary}}
+
+
+TECHNICAL SKILLS
+{{skills}}
+
+
+PROFESSIONAL EXPERIENCE
+
+ForeFlight
+{{ForeFlight}}
+
+
+Revolution Parts
+{{company:Revolution Parts}}
+
+
+Sandoval Agency
+{{Sandoval Agency}}
+
+
+Google
+{{Google}}

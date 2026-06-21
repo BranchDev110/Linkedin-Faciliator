@@ -1,0 +1,35 @@
+# Firestore composite indexes required for queries with where + orderBy
+# Deploy with: firebase deploy --only firestore:indexes
+
+indexes:
+  - collectionGroup: profiles
+    queryScope: COLLECTION
+    fields:
+      - fieldPath: userId
+        order: ASCENDING
+      - fieldPath: createdAt
+        order: DESCENDING
+
+  - collectionGroup: applications
+    queryScope: COLLECTION
+    fields:
+      - fieldPath: userId
+        order: ASCENDING
+      - fieldPath: createdAt
+        order: DESCENDING
+
+  - collectionGroup: resumes
+    queryScope: COLLECTION
+    fields:
+      - fieldPath: userId
+        order: ASCENDING
+      - fieldPath: createdAt
+        order: DESCENDING
+
+  - collectionGroup: profiles
+    queryScope: COLLECTION
+    fields:
+      - fieldPath: userId
+        order: ASCENDING
+      - fieldPath: isDefault
+        order: ASCENDING

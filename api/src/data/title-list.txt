@@ -1,0 +1,104 @@
+Software & Backend Engineering
+	•	Senior Software Engineer → Software Engineer
+	•	Senior Backend Engineer → Backend Engineer
+	•	Senior Full Stack Engineer → Full Stack Engineer
+	•	Senior Cloud Engineer → Cloud Engineer
+	•	Senior Platform Engineer → Platform Engineer
+	•	Senior Systems Engineer → Systems Engineer
+	•	Senior Distributed Systems Engineer → Distributed Systems Engineer
+	•	Senior API Engineer → API Engineer
+	•	Senior Integration Engineer → Integration Engineer
+	•	Senior Microservices Engineer → Microservices Engineer
+	•	Senior Node.js Engineer → Node.js Engineer
+	•	Senior Java Engineer → Java Engineer
+	•	Senior Python Engineer → Python Engineer
+	•	Senior C# Engineer → C# Engineer
+	•	Senior Go Engineer → Go Engineer
+	•	Senior Rust Engineer → Rust Engineer
+Frontend / Web Engineering
+	•	Senior Frontend Engineer → Frontend Engineer
+	•	Senior UI Engineer → UI Engineer
+	•	Senior Web Engineer → Web Engineer
+	•	Senior React Engineer → React Engineer
+	•	Senior Angular Engineer → Angular Engineer
+	•	Senior Vue Engineer → Vue Engineer
+	•	Senior UX Engineer → UX Engineer
+	•	Senior Web Components Engineer → Web Components Engineer
+	•	Senior JavaScript Engineer → JavaScript Engineer
+	•	Senior TypeScript Engineer → TypeScript Engineer
+Cloud, DevOps & Infrastructure
+	•	Senior Cloud Engineer → Cloud Engineer
+	•	Senior DevOps Engineer → DevOps Engineer
+	•	Senior SRE (Site Reliability Engineer) → SRE (Site Reliability Engineer)
+	•	Senior Platform Engineer → Platform Engineer
+	•	Senior Infrastructure Engineer → Infrastructure Engineer
+	•	Senior Kubernetes Engineer → Kubernetes Engineer
+	•	Senior Terraform Engineer → Terraform Engineer
+	•	Senior AWS Engineer → AWS Engineer
+	•	Senior Azure Engineer → Azure Engineer
+	•	Senior GCP Engineer → GCP Engineer
+	•	Senior CI/CD Engineer → CI/CD Engineer
+Data & Analytics Engineering
+	•	Senior Data Engineer → Data Engineer
+	•	Senior ETL Engineer → ETL Engineer
+	•	Senior Data Platform Engineer → Data Platform Engineer
+	•	Senior Data Pipeline Engineer → Data Pipeline Engineer
+	•	Senior Big Data Engineer → Big Data Engineer
+	•	Senior Analytics Engineer → Analytics Engineer
+	•	Senior Machine Learning Engineer → Machine Learning Engineer
+	•	Senior AI Engineer → AI Engineer
+	•	Senior ML Ops Engineer → ML Ops Engineer
+	•	Senior AI/ML Platform Engineer → AI/ML Platform Engineer
+Mobile Engineering
+	•	Senior Mobile Engineer → Mobile Engineer
+	•	Senior iOS Engineer → iOS Engineer
+	•	Senior Android Engineer → Android Engineer
+	•	Senior React Native Engineer → React Native Engineer
+	•	Senior Flutter Engineer → Flutter Engineer
+Identity, Security & IAM Engineering
+	•	Senior Identity Engineer → Identity Engineer
+	•	Senior IAM Engineer → IAM Engineer
+	•	Senior Authorization Engineer → Authorization Engineer
+	•	Senior Security Engineer → Security Engineer
+	•	Senior Access Control Engineer → Access Control Engineer
+	•	Senior PKI/Certificate Engineer → PKI/Certificate Engineer
+	•	Senior Compliance Engineer → Compliance Engineer
+ERP / Enterprise Systems
+	•	Senior Salesforce Engineer → Salesforce Engineer
+	•	Senior NetSuite Engineer → NetSuite Engineer
+	•	Senior ERP Engineer → ERP Engineer
+	•	Senior Business Systems Engineer → Business Systems Engineer
+	•	Senior ERP Integration Engineer → ERP Integration Engineer
+	•	Senior CRM Engineer → CRM Engineer
+QA / Testing / Automation
+	•	Senior QA Engineer → QA Engineer
+	•	Senior Test Automation Engineer → Test Automation Engineer
+	•	Senior Performance Engineer → Performance Engineer
+	•	Senior Security QA Engineer → Security QA Engineer
+Specialized / Emerging Roles
+	•	Senior Blockchain Engineer → Blockchain Engineer
+	•	Senior DevSecOps Engineer → DevSecOps Engineer
+	•	Senior Observability Engineer → Observability Engineer
+	•	Senior AI Platform Engineer → AI Platform Engineer
+	•	Senior Cloud-Native Engineer → Cloud-Native Engineer
+	•	Senior Edge Computing Engineer → Edge Computing Engineer
+AI / ML / Data Engineering
+	•	Senior AI Engineer → AI Engineer
+	•	Senior ML Engineer → ML Engineer
+	•	Senior Machine Learning Engineer → Machine Learning Engineer
+	•	Senior Deep Learning Engineer → Deep Learning Engineer
+	•	Senior NLP Engineer → NLP Engineer
+	•	Senior Computer Vision Engineer → Computer Vision Engineer
+	•	Senior AI Platform Engineer → AI Platform Engineer
+	•	Senior AI/ML Infrastructure Engineer → AI/ML Infrastructure Engineer
+	•	Senior ML Ops Engineer → ML Ops Engineer
+	•	Senior AI Research Engineer → AI Research Engineer
+	•	Senior Data Scientist → Data Scientist
+	•	Senior Data Engineer (ML pipelines) → Data Engineer (ML pipelines)
+	•	Senior MLOps Engineer → MLOps Engineer
+	•	Senior Model Deployment Engineer → Model Deployment Engineer
+	•	Senior AI Solutions Engineer → AI Solutions Engineer
+	•	Senior Algorithm Engineer → Algorithm Engineer
+	•	Senior Predictive Modeling Engineer → Predictive Modeling Engineer
+	•	Senior Recommendation Systems Engineer → Recommendation Systems Engineer
+	•	Senior AI/ML Platform Developer → AI/ML Platform Developer

@@ -1,0 +1,35 @@
+Programming Languages
+Java&JavaScript&TypeScript&Python&Go&C#&C++&Kotlin&Swift&Ruby&PHP&Scala&Rust&R&Julia
+
+Frontend Engineering
+HTML&CSS&Web Components&React&Next.js&Angular&Vue.js&Nuxt.js&Svelte&SvelteKit&React Context API&React Query&Redux&Redux Toolkit&Zustand&MobX&Recoil&React Router&TanStack Query&Material UI&Ant Design&Chakra UI&Bootstrap&Semantic UI&Shadcn UI&Tailwind CSS&Sass&SCSS&Styled Components&Emotion&CSS Modules&Less&Webpack&Vite&Babel&Parcel&Rollup&Turbopack&ESLint&Prettier&D3.js&Highcharts&Chart.js&ECharts&Recharts&Vega&Vega-Lite&WebGL&Three.js&Mapbox GL JS&Leaflet&OpenLayers&CesiumJS&Deck.gl&WCAG&ARIA&Jest&Vitest&Cypress&Playwright&Selenium&React Testing Library&SSR&SSG&ISR&PWA&Design Systems&Micro Frontends&Module Federation
+
+Backend Engineering
+Node.js&Express.js&NestJS&Spring Boot&Spring MVC&Spring Security&.NET&.NET Core&ASP.NET Core&Django&Flask&FastAPI&Ruby on Rails&Laravel&Phoenix&GraphQL&Apollo GraphQL&REST APIs&gRPC&OpenAPI&Swagger&OAuth 2.0&OpenID Connect&JWT&SAML&Keycloak&Auth0&BFF&CQRS&Event Sourcing&Domain-Driven Design
+
+Databases
+PostgreSQL&MySQL&SQL Server&Oracle&MongoDB&DynamoDB&Azure Cosmos DB&Cassandra&Redis&Memcached&Elasticsearch&OpenSearch&Solr
+
+Cloud & Infrastructure
+AWS&Azure&GCP&EC2&S3&RDS&AWS Lambda&ECS&EKS&API Gateway&CloudWatch&IAM&VPC&Azure Functions&Azure App Service&AKS&Azure Monitor&Azure Key Vault&Google Cloud Functions&GKE&Cloud Run&Cloud Build&Docker&Kubernetes&Helm
+
+DevOps / Platform Engineering / SRE
+Terraform&OpenTofu&CloudFormation&Pulumi&ARM Templates&Bicep&Git&GitHub&GitHub Actions&GitLab CI&Jenkins&CircleCI&Azure DevOps&Argo CD&Flux CD&Tekton&Bamboo&TeamCity&Datadog&Prometheus&Grafana&OpenTelemetry&Splunk&New Relic&ELK Stack&Loki&Jaeger&Zipkin&Ansible&Chef&Puppet&SaltStack&Nginx&HAProxy&Traefik&Envoy&Istio&Linkerd&DNS&TCP/IP&HTTP&HTTPS&HashiCorp Vault&AWS Secrets Manager&CyberArk&Linux&Bash&Shell Scripting&Ubuntu&RHEL&PagerDuty&Opsgenie&ServiceNow&Nexus Repository&JFrog Artifactory&Harbor&Travis CI&11ty
+
+Data Engineering
+Apache Spark&PySpark&Spark SQL&Hadoop&MapReduce&Apache Flink&Apache Beam&Trino&Presto&Apache Airflow&Dagster&Luigi&Prefect&Apache Kafka&Kafka Streams&Kafka Connect&Confluent Platform&Apache Pulsar&Amazon Kinesis&Google Pub/Sub&RabbitMQ&ActiveMQ&Amazon SQS&Amazon SNS&Azure Service Bus&Azure Data Factory&AWS Glue&Google Cloud Dataflow&Snowflake&Amazon Redshift&BigQuery&Azure Synapse Analytics&Databricks&Delta Lake&Apache Iceberg&Apache Hudi&ADLS&dbt&ETL&ELT&Great Expectations&Apache Atlas&Collibra&Alation&DataHub&Parquet&Avro&ORC&JSON&XML&Tableau&Power BI&Looker&Apache Superset
+
+AI / ML Engineering
+TensorFlow&PyTorch&Keras&Scikit-learn&XGBoost&LightGBM&CatBoost&JAX&PyTorch Lightning&Hugging Face Transformers&spaCy&NLTK&Sentence Transformers&BERT&RoBERTa&T5&OpenAI API&Anthropic API&Google Gemini API&Hugging Face&LangChain&LangGraph&LlamaIndex&RAG&Fine-Tuning&Prompt Engineering&Function Calling&Agentic AI&MCP&Pinecone&Weaviate&Milvus&Qdrant&Chroma&FAISS&MLflow&Kubeflow&Weights & Biases&Neptune.ai&ClearML&TensorBoard&Pandas&NumPy&Polars&TorchServe&TensorFlow Serving&BentoML&Ray Serve&NVIDIA Triton Inference Server&Ray&Horovod&DeepSpeed&OpenCV&YOLO&Detectron2&MMDetection&Segment Anything&AWS SageMaker&Azure Machine Learning&Vertex AI&CUDA&NVIDIA TensorRT&ONNX&ONNX Runtime&Hybrid Search&Semantic Search&LangSmith&Arize AI&WhyLabs&Evidently AI
+
+Mobile Engineering
+Android&iOS&React Native&Flutter&Dart&Kotlin Multiplatform&Objective-C&SwiftUI&Jetpack Compose&UIKit&Xcode&Android SDK&Android Studio&Room&LiveData&ViewModel&Coroutines&WorkManager&MVVM&MVC&MVP&Clean Architecture&SQLite&Realm&Core Data&SharedPreferences&UserDefaults&Retrofit&Alamofire&Firebase&Firebase Firestore&Firebase Realtime Database&Firebase Authentication&AWS Amplify&APNs&Firebase Cloud Messaging&XCTest&XCUITest&Espresso&Detox&Appium&Maestro&Fastlane&Bitrise&Firebase App Distribution&TestFlight&Codemagic&Firebase Analytics&Mixpanel&Amplitude&Google Maps SDK&Mapbox SDK&Apple MapKit&Instruments&Android Profiler&Keychain&Android Keystore&Certificate Pinning&VoiceOver&TalkBack&Apple Pay&Google Pay&Stripe SDK
+
+Salesforce Engineering
+Salesforce Platform&Apex&Visualforce&Lightning Web Components&Aura Components&Salesforce Flows&Process Builder&Workflow Rules&SOQL&SOSL&Salesforce REST API&Salesforce SOAP API&Bulk API&Metadata API&Tooling API&Platform Events&Change Data Capture&Salesforce Connect&External Objects&Salesforce DX&SFDX&Salesforce CLI&Salesforce DevOps Center&Scratch Orgs&Unlocked Packages&Managed Packages&Salesforce Security Model&Profiles&Permission Sets&Role Hierarchy&Sharing Rules&OWD&Custom Objects&Custom Fields&Validation Rules&Approval Processes&Reports&Dashboards&Sales Cloud&Service Cloud&Experience Cloud&Marketing Cloud&Commerce Cloud&CPQ&Einstein Analytics&MuleSoft&Data Loader&Gearset&Copado&Flosum&Jenkins&GitHub Actions
+
+NetSuite Engineering
+NetSuite ERP&SuiteScript 1.0&SuiteScript 2.0&SuiteScript 2.1&SuiteFlow&SuiteBuilder&SuiteTalk REST API&SuiteTalk SOAP API&RESTlets&SuiteQL&Saved Searches&Custom Records&Custom Fields&Custom Forms&Client Scripts&User Event Scripts&Scheduled Scripts&Map/Reduce Scripts&Suitelets&Mass Update Scripts&Workflow Action Scripts&Portlets&SuiteAnalytics&SuiteAnalytics Connect&SuiteBundler&SuiteCloud Development Framework&SDF&SuiteCloud IDE&NetSuite SuiteApp&NetSuite Sandbox&NetSuite Release Preview&SuiteTax&Advanced PDF/HTML Templates&CSV Imports&Electronic Bank Payments&Order to Cash&Procure to Pay&Record to Report&Inventory Management&Revenue Recognition&OneWorld&Multi-Subsidiary Management&Intercompany Transactions&NetSuite Permissions&Roles&Subsidiaries&Departments&Classes&Locations&Celigo integrator.io&Boomi&Workato&MuleSoft
+
+CMS / Content Management Engineering
+WordPress&WooCommerce&Drupal&Joomla&Sitecore&Adobe Experience Manager&AEM&Magnolia CMS&Kentico&Contentful&Sanity CMS&Strapi&Ghost CMS&HubSpot CMS&Wix&Squarespace&Gatsby&Jekyll&Hugo&Eleventy&Headless CMS&Gutenberg Blocks&Advanced Custom Fields&ACF Pro&Elementor&Drupal Views&Drupal Modules&Sitecore JSS&AEM Sites&AEM Assets&AEM Forms&AEM Dispatcher&HTL&Contentful API&Sanity GROQ&Strapi API&Ghost Admin API&HubL&HubSpot API&Algolia&Meilisearch&Cloudflare CDN&Fastly&Akamai&Webhooks
