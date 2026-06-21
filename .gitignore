@@ -10,6 +10,6 @@ coverage/
 .firebase/
 serviceAccountKey.json
 google-credentials.json
-storage/
+/storage/
 deploy/env/staging.env
 deploy/env/production.env
