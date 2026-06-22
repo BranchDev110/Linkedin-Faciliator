@@ -144,14 +144,17 @@ curl http://127.0.0.1:3002/api/health
 
 - Enable **Required reviewers** so deploy waits for approval after merge to `production`
 
-## 7. What triggers deploy
+## 7. What triggers each workflow
 
-| Event | Result |
-|-------|--------|
-| PR → `main` or `production` | CI build + Docker smoke test only |
-| Push / merge to **`production`** | Build image → push GHCR → deploy VPS |
+| Event | CI | Deploy Production |
+|-------|----|-------------------|
+| PR → `main` or `production` | Builds + Docker smoke test | — |
+| Push to **`main`** (staging) | Builds + Docker smoke test | — |
+| Push to **`production`** | — | Build image → GHCR → deploy VPS |
 
-Pushes to **`main` (staging) do not deploy** to the server.
+Pushes to **`main` do not deploy** to the VPS. Only **`production`** does.
+
+**Why two workflows?** CI is a quality gate (compile + smoke test). Deploy Production is the release step (push image + restart VPS). They are separate on purpose; only Deploy touches the server.
 
 ## 8. Local staging (`main`)
 

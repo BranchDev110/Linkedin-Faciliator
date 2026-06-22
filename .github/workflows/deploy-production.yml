@@ -1,3 +1,6 @@
+# Deploy Production — push to production branch only.
+# Builds image → pushes GHCR → SSH to VPS → pull & restart.
+
 name: Deploy Production
 
 on:
@@ -51,6 +54,15 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Prepare SSH key file
+        env:
+          SSH_KEY: ${{ secrets.PRODUCTION_SSH_KEY }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.PRODUCTION_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
       - name: Deploy to production VPS
         uses: appleboy/ssh-action@v1.2.0
         env:
@@ -61,7 +73,7 @@ jobs:
         with:
           host: ${{ secrets.PRODUCTION_HOST }}
           username: ${{ secrets.PRODUCTION_USER }}
-          key: ${{ secrets.PRODUCTION_SSH_KEY }}
+          key_path: ~/.ssh/deploy_key
           envs: APP_PATH,APP_IMAGE,GHCR_READ_TOKEN,GHCR_USER
           script_stop: true
           script: |
@@ -86,7 +98,7 @@ jobs:
             export ENVIRONMENT=production
             bash deploy/scripts/remote-deploy.sh production
 
-            echo "Verifying public health endpoint ..."
+            echo "Verifying health endpoint ..."
             curl -fsS http://127.0.0.1:3002/api/health
             echo ""
             echo "Production deploy succeeded."
