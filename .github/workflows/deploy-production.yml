@@ -58,10 +58,11 @@ jobs:
         env:
           SSH_KEY: ${{ secrets.PRODUCTION_SSH_KEY }}
         run: |
-          install -m 700 -d ~/.ssh
-          printf '%s' "$SSH_KEY" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H "${{ secrets.PRODUCTION_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+          DEPLOY_KEY_PATH="${RUNNER_TEMP}/deploy_key"
+          printf '%s' "$SSH_KEY" > "${DEPLOY_KEY_PATH}"
+          chmod 600 "${DEPLOY_KEY_PATH}"
+          echo "DEPLOY_KEY_PATH=${DEPLOY_KEY_PATH}" >> "$GITHUB_ENV"
+          ssh-keyscan -H "${{ secrets.PRODUCTION_HOST }}" >> "${RUNNER_TEMP}/known_hosts" 2>/dev/null || true
 
       - name: Deploy to production VPS
         uses: appleboy/ssh-action@v1.2.0
@@ -73,7 +74,7 @@ jobs:
         with:
           host: ${{ secrets.PRODUCTION_HOST }}
           username: ${{ secrets.PRODUCTION_USER }}
-          key_path: ~/.ssh/deploy_key
+          key_path: ${{ env.DEPLOY_KEY_PATH }}
           envs: APP_PATH,APP_IMAGE,GHCR_READ_TOKEN,GHCR_USER
           script_stop: true
           script: |
