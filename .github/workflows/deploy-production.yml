@@ -54,52 +54,59 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Prepare SSH key file
+      - name: Prepare SSH key and test connection
         env:
           SSH_KEY: ${{ secrets.PRODUCTION_SSH_KEY }}
         run: |
           DEPLOY_KEY_PATH="${RUNNER_TEMP}/deploy_key"
-          printf '%s' "$SSH_KEY" > "${DEPLOY_KEY_PATH}"
+          KNOWN_HOSTS="${RUNNER_TEMP}/known_hosts"
+          printf '%s\n' "$SSH_KEY" > "${DEPLOY_KEY_PATH}"
           chmod 600 "${DEPLOY_KEY_PATH}"
+          ssh-keygen -y -f "${DEPLOY_KEY_PATH}" >/dev/null
+          ssh-keyscan -H "${{ secrets.PRODUCTION_HOST }}" >> "${KNOWN_HOSTS}" 2>/dev/null || true
           echo "DEPLOY_KEY_PATH=${DEPLOY_KEY_PATH}" >> "$GITHUB_ENV"
-          ssh-keyscan -H "${{ secrets.PRODUCTION_HOST }}" >> "${RUNNER_TEMP}/known_hosts" 2>/dev/null || true
+          echo "KNOWN_HOSTS=${KNOWN_HOSTS}" >> "$GITHUB_ENV"
+          ssh -i "${DEPLOY_KEY_PATH}" \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${KNOWN_HOSTS}" \
+            "${{ secrets.PRODUCTION_USER }}@${{ secrets.PRODUCTION_HOST }}" \
+            "echo SSH connection OK"
 
       - name: Deploy to production VPS
-        uses: appleboy/ssh-action@v1.2.0
         env:
           APP_PATH: ${{ secrets.PRODUCTION_APP_PATH }}
           APP_IMAGE: ${{ env.IMAGE }}:production
           GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
           GHCR_USER: ${{ github.repository_owner }}
-        with:
-          host: ${{ secrets.PRODUCTION_HOST }}
-          username: ${{ secrets.PRODUCTION_USER }}
-          key_path: ${{ env.DEPLOY_KEY_PATH }}
-          envs: APP_PATH,APP_IMAGE,GHCR_READ_TOKEN,GHCR_USER
-          script_stop: true
-          script: |
-            set -euo pipefail
+        run: |
+          ssh -i "${DEPLOY_KEY_PATH}" \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${KNOWN_HOSTS}" \
+            "${{ secrets.PRODUCTION_USER }}@${{ secrets.PRODUCTION_HOST }}" \
+            "APP_PATH=${APP_PATH@Q} APP_IMAGE=${APP_IMAGE@Q} GHCR_READ_TOKEN=${GHCR_READ_TOKEN@Q} GHCR_USER=${GHCR_USER@Q} bash -s" << 'REMOTE_SCRIPT'
+          set -euo pipefail
 
-            if [ -z "${APP_PATH:-}" ]; then
-              echo "PRODUCTION_APP_PATH secret is not set." >&2
-              exit 1
-            fi
+          if [ -z "${APP_PATH:-}" ]; then
+            echo "PRODUCTION_APP_PATH secret is not set." >&2
+            exit 1
+          fi
 
-            cd "${APP_PATH}"
+          cd "${APP_PATH}"
 
-            if [ -n "${GHCR_READ_TOKEN:-}" ]; then
-              echo "${GHCR_READ_TOKEN}" | docker login ghcr.io -u "${GHCR_USER}" --password-stdin
-            fi
+          if [ -n "${GHCR_READ_TOKEN:-}" ]; then
+            echo "${GHCR_READ_TOKEN}" | docker login ghcr.io -u "${GHCR_USER}" --password-stdin
+          fi
 
-            git fetch origin production
-            git checkout production
-            git pull --ff-only origin production
+          git fetch origin production
+          git checkout production
+          git pull --ff-only origin production
 
-            export APP_IMAGE
-            export ENVIRONMENT=production
-            bash deploy/scripts/remote-deploy.sh production
+          export APP_IMAGE
+          export ENVIRONMENT=production
+          bash deploy/scripts/remote-deploy.sh production
 
-            echo "Verifying health endpoint ..."
-            curl -fsS http://127.0.0.1:3002/api/health
-            echo ""
-            echo "Production deploy succeeded."
+          echo "Verifying health endpoint ..."
+          curl -fsS http://127.0.0.1:3002/api/health
+          echo ""
+          echo "Production deploy succeeded."
+          REMOTE_SCRIPT
