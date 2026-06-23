@@ -291,6 +291,22 @@ body {
   text-decoration: underline;
 }
 
+.profile-status-ok {
+  color: #047857;
+  font-weight: 500;
+}
+
+.profile-setup-warnings {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .notice {
   background: var(--warning-subtle);
   border: 1px solid #fde68a;

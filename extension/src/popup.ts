@@ -2,12 +2,17 @@ import {
   getStorage,
   setStorage,
   clearStorage,
-  openAuthPage,
-  openWebApp,
+  signOut,
+  openLoginPage,
+  openSignUpPage,
   apiRequest,
   ensureAuthenticatedSession,
 } from './shared';
 import { bindBulletTextarea, formatBulletLines, BULLET_LINE_PREFIX, stripBulletLinePrefix } from './bullet-format';
+import {
+  getProfileSetupWarnings,
+  profileHasTemplate as profileHasResumeTemplate,
+} from './profile-status';
 import type { ExtractedJob } from './extract-job';
 
 interface ProfileCompany {
@@ -58,8 +63,8 @@ const authSection = document.getElementById('auth-section')!;
 const mainSection = document.getElementById('main-section')!;
 const userEmail = document.getElementById('user-email')!;
 const userAvatar = document.getElementById('user-avatar')!;
-const profileSelect = document.getElementById('profile-select') as HTMLSelectElement;
-const btnRefreshProfiles = document.getElementById('btn-refresh-profiles') as HTMLButtonElement;
+const profileSummary = document.getElementById('profile-summary')!;
+const profileSetupWarnings = document.getElementById('profile-setup-warnings')!;
 const noJob = document.getElementById('no-job')!;
 const jobPanel = document.getElementById('job-panel')!;
 const jobTitle = document.getElementById('job-title')!;
@@ -76,12 +81,11 @@ const btnGenerate = document.getElementById('btn-generate') as HTMLButtonElement
 const companyBulletsSection = document.getElementById('company-bullets-section')!;
 const companyBulletsList = document.getElementById('company-bullets-list')!;
 const statusEl = document.getElementById('status')!;
-const dashboardLink = document.getElementById('dashboard-link') as HTMLAnchorElement;
 
 let currentJob: ExtractedJob | null = null;
 let extractedSkills: ApplicationSkills | null = null;
 let lastApplicationId: string | null = null;
-let profiles: Profile[] = [];
+let currentProfile: Profile | null = null;
 
 function showStatus(message: string, type: 'success' | 'error' | 'info' = 'info') {
   statusEl.textContent = message;
@@ -168,16 +172,33 @@ function normalizeCompanies(raw: Profile['companies']): ProfileCompany[] {
 }
 
 function getSelectedProfile(): Profile | undefined {
-  return profiles.find((p) => p.id === profileSelect.value);
+  return currentProfile ?? undefined;
+}
+
+function updateProfileSummary() {
+  if (!currentProfile) {
+    profileSummary.textContent = 'Loading profile...';
+    profileSummary.className = 'field-hint';
+    profileSetupWarnings.classList.add('hidden');
+    profileSetupWarnings.textContent = '';
+    return;
+  }
+
+  profileSummary.textContent = 'Profile loaded successfully.';
+  profileSummary.className = 'field-hint profile-status-ok';
+
+  const warnings = getProfileSetupWarnings(currentProfile);
+  if (warnings.length) {
+    profileSetupWarnings.textContent = warnings.join(' ');
+    profileSetupWarnings.classList.remove('hidden');
+  } else {
+    profileSetupWarnings.textContent = '';
+    profileSetupWarnings.classList.add('hidden');
+  }
 }
 
 function profileHasTemplate(): boolean {
-  const profile = getSelectedProfile();
-  if (!profile) return false;
-  if (profile.resumeTemplateFormat === 'docx') {
-    return Boolean(profile.resumeTemplateFilePath?.trim());
-  }
-  return Boolean(profile.resumeTemplate?.trim());
+  return profileHasResumeTemplate(getSelectedProfile());
 }
 
 function allCompanyBulletsFilled(): boolean {
@@ -213,7 +234,7 @@ function collectAllCompanyBullets(): { company: string; bullets: string }[] {
 
 function updateGenerateResumeVisibility(): void {
   const shouldShow =
-    Boolean(profileSelect.value) &&
+    Boolean(currentProfile) &&
     getSelectedCompanies().length > 0 &&
     profileHasTemplate();
 
@@ -360,10 +381,10 @@ function updateActionButtons() {
   const hasSkills = hasSkillsContent(extractedSkills);
 
   btnExtractSkills.disabled = !hasJd;
-  btnSave.disabled = !hasJd || !profileSelect.value;
+  btnSave.disabled = !hasJd || !currentProfile;
   updateGenerateResumeVisibility();
   btnGenerate.disabled =
-    !profileSelect.value ||
+    !currentProfile ||
     !hasSkills ||
     !allCompanyBulletsFilled() ||
     !profileHasTemplate();
@@ -526,7 +547,13 @@ async function extractSkillsFromApi() {
       body: JSON.stringify({
         jobDescription: description,
         companyName: jobData.companyName,
+        jobTitle: jobData.jobTitle,
+        linkedInJobUrl: jobData.linkedInJobUrl || jobData.jobUrl,
+        realJobUrl: jobData.realJobUrl || '',
+        location: jobData.location,
+        companyLogoUrl: jobData.companyLogoUrl,
         applicationId: lastApplicationId || undefined,
+        linkedInJobId: currentJob?.linkedInJobId || undefined,
       }),
     });
 
@@ -552,68 +579,35 @@ async function extractSkillsFromApi() {
   }
 }
 
-async function loadProfiles(token: string, options?: { notify?: boolean }) {
-  const previousSelection = profileSelect.value;
-
+async function loadProfile(token: string, options?: { notify?: boolean }) {
   try {
-    profiles = await apiRequest<Profile[]>('/profiles', { token });
-    profileSelect.innerHTML = '<option value="">Select a profile...</option>';
-    profiles.forEach((p) => {
-      const option = document.createElement('option');
-      option.value = p.id;
-      option.textContent = p.profileName;
-      profileSelect.appendChild(option);
-    });
-
-    if (previousSelection && profiles.some((p) => p.id === previousSelection)) {
-      profileSelect.value = previousSelection;
-    } else if (profiles.length === 1) {
-      profileSelect.value = profiles[0].id;
-    }
-
+    currentProfile = await apiRequest<Profile>('/profiles/me', { token });
+    updateProfileSummary();
     renderCompanyBulletFields();
     updateActionButtons();
 
     if (options?.notify) {
-      showStatus(
-        profiles.length
-          ? `Loaded ${profiles.length} profile${profiles.length === 1 ? '' : 's'}.`
-          : 'No profiles yet. Create one in the dashboard.',
-        profiles.length ? 'success' : 'info',
-      );
+      showStatus('Profile loaded.', 'success');
     }
   } catch (err) {
-    profiles = [];
+    currentProfile = null;
+    updateProfileSummary();
     showStatus(
-      err instanceof Error ? err.message : 'Could not load profiles. Is the API running?',
+      err instanceof Error ? err.message : 'Could not load profile. Is the API running?',
       'error',
     );
   }
 }
 
-async function refreshProfiles() {
-  const auth = await ensureAuthenticatedSession();
-  if (!auth?.token) {
-    showAuthUI();
-    showStatus('Sign in to load profiles.', 'error');
-    return;
-  }
+let authSessionGeneration = 0;
+let authRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
-  btnRefreshProfiles.disabled = true;
-  btnRefreshProfiles.textContent = '...';
-
-  try {
-    await loadProfiles(auth.token, { notify: true });
-  } finally {
-    btnRefreshProfiles.disabled = false;
-    btnRefreshProfiles.textContent = 'Refresh';
-  }
-}
-
-async function init() {
+async function refreshAuthUI(fullInit = false) {
+  const generation = ++authSessionGeneration;
   hideStatus();
 
   const auth = await ensureAuthenticatedSession();
+  if (generation !== authSessionGeneration) return;
 
   if (!auth?.token) {
     showAuthUI();
@@ -621,7 +615,10 @@ async function init() {
   }
 
   showMainUI(auth.email || '');
-  await loadProfiles(auth.token);
+
+  if (!fullInit) return;
+
+  await loadProfile(auth.token);
   await extractJobFromTab();
 
   const storage = await getStorage();
@@ -633,55 +630,68 @@ async function init() {
   }
 }
 
+function scheduleAuthRefresh(fullInit = false) {
+  if (authRefreshTimer) {
+    clearTimeout(authRefreshTimer);
+  }
+
+  authRefreshTimer = setTimeout(() => {
+    authRefreshTimer = null;
+    void refreshAuthUI(fullInit);
+  }, fullInit ? 0 : 200);
+}
+
+async function init() {
+  await refreshAuthUI(true);
+}
+
 function setupSessionRefresh() {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
-      void init();
+      scheduleAuthRefresh(false);
     }
   });
 
   window.addEventListener('focus', () => {
-    void init();
+    scheduleAuthRefresh(false);
   });
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
-    if (changes.token || changes.email) {
-      void init();
+
+    if (changes.signedOut?.newValue === true) {
+      authSessionGeneration += 1;
+      showAuthUI();
+      return;
+    }
+
+    if (changes.token && !changes.token.newValue) {
+      authSessionGeneration += 1;
+      showAuthUI();
+      return;
+    }
+
+    if (changes.token?.newValue || changes.email?.newValue) {
+      scheduleAuthRefresh(false);
     }
   });
 }
 
 document.getElementById('btn-signin')!.addEventListener('click', () => {
-  openAuthPage('signin');
-});
-
-dashboardLink.href = '#';
-dashboardLink.addEventListener('click', (event) => {
-  event.preventDefault();
-  openWebApp('/profiles');
-});
-
-btnRefreshProfiles.addEventListener('click', () => {
-  void refreshProfiles();
+  openLoginPage();
 });
 
 document.getElementById('btn-signup')!.addEventListener('click', () => {
-  openAuthPage('signup');
+  openSignUpPage();
 });
 
 document.getElementById('btn-signout')!.addEventListener('click', async () => {
-  await clearStorage();
-  profiles = [];
+  authSessionGeneration += 1;
+  await signOut();
+  currentProfile = null;
   currentJob = null;
   extractedSkills = null;
-  init();
-});
-
-profileSelect.addEventListener('change', () => {
-  renderCompanyBulletFields();
-  updateGenerateResumeVisibility();
-  updateActionButtons();
+  showAuthUI();
 });
 
 jdText.addEventListener('input', () => {
@@ -699,7 +709,7 @@ btnExtractSkills.addEventListener('click', extractSkillsFromApi);
 
 btnSave.addEventListener('click', async () => {
   const description = jdText.value.trim();
-  if (!description || !profileSelect.value) return;
+  if (!description || !currentProfile) return;
 
   const storage = await getStorage();
   if (!storage.token) return;
@@ -715,7 +725,6 @@ btnSave.addEventListener('click', async () => {
       method: 'POST',
       token: storage.token,
       body: JSON.stringify({
-        profileId: profileSelect.value,
         companyName: jobData.companyName,
         jobTitle: jobData.jobTitle,
         jobDescription: description,
@@ -747,7 +756,7 @@ btnSave.addEventListener('click', async () => {
 });
 
 btnGenerate.addEventListener('click', async () => {
-  if (!profileSelect.value || !extractedSkills) return;
+  if (!currentProfile || !extractedSkills) return;
 
   if (!allCompanyBulletsFilled()) {
     showStatus('Fill in resume bullets for every company first.', 'error');
@@ -777,7 +786,6 @@ btnGenerate.addEventListener('click', async () => {
         method: 'POST',
         token: storage.token,
         body: JSON.stringify({
-          profileId: profileSelect.value,
           companyName: jobData.companyName,
           jobTitle: jobData.jobTitle,
           jobDescription: description,
@@ -800,7 +808,6 @@ btnGenerate.addEventListener('click', async () => {
         token: storage.token,
         body: JSON.stringify({
           applicationId,
-          profileId: profileSelect.value,
           skills: extractedSkills,
           companyBullets,
         }),

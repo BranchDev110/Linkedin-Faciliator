@@ -9,13 +9,31 @@ import {
   getStorage,
   setStorage,
   signOut,
-  openAuthPage,
+  openLoginPage,
+  openSignUpPage,
   openWebApp,
   apiRequest,
   ensureAuthenticatedSession,
   downloadAuthenticatedFile,
+  fileNameFromDownloadUrl,
+  filePathFromDownloadUrl,
+  unwrapApplicationLookup,
+  normalizeApplicationRecord,
+  installExtensionErrorHandlers,
+  isExtensionContextError,
+  isExtensionContextValid,
+  requestSidebarReload,
+  storageRemove,
+  type ApplicationAiCostBreakdown,
+  type ApplicationRecord,
 } from './shared';
 import { formatUsd } from './format-cost';
+import {
+  applicationNoticeMessage,
+  getProfileSetupWarnings,
+  profileHasTemplate as profileHasResumeTemplate,
+  resolveApplicationNotice,
+} from './profile-status';
 import type { ExtractedJob } from './extract-job';
 
 interface ProfileCompany {
@@ -69,33 +87,8 @@ interface ExtractApplicationSkillsResponse {
   costUsd: number;
   fromCache?: boolean;
   applicationAiCostUsd?: number;
-}
-
-interface ApplicationAiCostBreakdown {
-  skillExtraction?: number;
-  resumeBullets?: number;
-  resumeContent?: number;
-}
-
-interface StoredApplication {
-  id: string;
-  profileId?: string;
-  companyName?: string;
-  jobTitle?: string;
-  jobDescription?: string;
-  linkedInJobId?: string;
-  linkedInJobUrl?: string;
-  realJobUrl?: string;
-  location?: string;
-  companyLogoUrl?: string;
-  hardSkills: string[];
-  competencies: string[];
-  skills?: ApplicationSkills;
-  companyBullets?: { company: string; bullets: string }[];
-  aiCostUsd?: number;
-  aiCostBreakdown?: ApplicationAiCostBreakdown;
-  resumeId?: string;
-  status?: 'recorded' | 'applied';
+  applicationId?: string;
+  application?: ApplicationRecord;
 }
 
 interface GeneratedResumeInfo {
@@ -105,12 +98,14 @@ interface GeneratedResumeInfo {
 }
 
 const authSection = document.getElementById('auth-section')!;
+const extensionStaleSection = document.getElementById('extension-stale-section')!;
 const mainSection = document.getElementById('main-section')!;
 const userEmail = document.getElementById('user-email')!;
 const userAvatar = document.getElementById('user-avatar')!;
-const profileSelect = document.getElementById('profile-select') as HTMLSelectElement;
-const profileApplicationNotice = document.getElementById('profile-application-notice')!;
-const btnRefreshProfiles = document.getElementById('btn-refresh-profiles') as HTMLButtonElement;
+const profileSummary = document.getElementById('profile-summary')!;
+const profileSetupWarnings = document.getElementById('profile-setup-warnings')!;
+const jobApplicationNotice = document.getElementById('job-application-notice')!;
+const jobSavedNotice = document.getElementById('job-saved-notice')!;
 const noJob = document.getElementById('no-job')!;
 const jobPanel = document.getElementById('job-panel')!;
 const jobTitle = document.getElementById('job-title')!;
@@ -137,7 +132,6 @@ const jobCostTotalEl = document.getElementById('job-cost-total')!;
 const resumeResultEl = document.getElementById('resume-result')!;
 const resumeResultNameEl = document.getElementById('resume-result-name')!;
 const btnDownloadResume = document.getElementById('btn-download-resume') as HTMLButtonElement;
-const dashboardLink = document.getElementById('dashboard-link') as HTMLAnchorElement;
 const workflowOverlay = document.getElementById('workflow-overlay')!;
 const workflowOverlayMessage = document.getElementById('workflow-overlay-message')!;
 
@@ -148,11 +142,10 @@ let pendingSkillExtractionCostUsd = 0;
 let jobCostBreakdown: ApplicationAiCostBreakdown = {};
 let skillsLoadedFromCache = false;
 let lastGeneratedResume: GeneratedResumeInfo | null = null;
-let lastResumeId: string | null = null;
-let applicationStatus: 'recorded' | 'applied' | null = null;
+let applicationStatus: ApplicationRecord['status'] | null = null;
 let skillsExtractedForDescription = '';
 let skillsExtractedForJobId = '';
-let profiles: Profile[] = [];
+let currentProfile: Profile | null = null;
 let lastAutoDetectedJobKey = '';
 let oneClickInProgress = false;
 let resumeInputSnapshot: string | null = null;
@@ -190,7 +183,7 @@ function resetJobCosts() {
   updateJobCostPanel();
 }
 
-function applyCostBreakdownFromApplication(app: StoredApplication) {
+function applyCostBreakdownFromApplication(app: ApplicationRecord) {
   if (app.aiCostBreakdown) {
     jobCostBreakdown = { ...app.aiCostBreakdown };
   } else if (typeof app.aiCostUsd === 'number' && app.aiCostUsd > 0) {
@@ -204,7 +197,7 @@ function applyCostBreakdownFromApplication(app: StoredApplication) {
   updateJobCostPanel();
 }
 
-function addLocalCost(category: keyof ApplicationAiCostBreakdown, amount: number) {
+function addLocalCost(category: 'skillExtraction' | 'resumeBullets', amount: number) {
   if (amount <= 0) return;
   jobCostBreakdown[category] = roundCostUsd((jobCostBreakdown[category] ?? 0) + amount);
   updateJobCostPanel();
@@ -214,10 +207,14 @@ async function refreshCostFromApplication(token: string): Promise<void> {
   if (!lastApplicationId) return;
 
   try {
-    const app = await apiRequest<StoredApplication>(`/applications/${lastApplicationId}`, {
-      token,
-    });
-    applyCostBreakdownFromApplication(app);
+    const app = normalizeApplicationRecord(
+      await apiRequest<ApplicationRecord>(`/applications/${lastApplicationId}`, {
+        token,
+      }),
+    );
+    if (app) {
+      applyCostBreakdownFromApplication(app);
+    }
   } catch {
     // Keep local cost estimates when refresh fails.
   }
@@ -256,7 +253,7 @@ function showResumeDownload(fileName: string) {
 
 function buildResumeInputSnapshot(): string {
   return JSON.stringify({
-    profileId: profileSelect.value,
+    profileId: currentProfile?.id || '',
     linkedInJobId: getCurrentLinkedInJobId(),
     skills: extractedSkills,
     companyBullets: collectAllCompanyBullets(),
@@ -272,7 +269,7 @@ function markResumeInputsChanged(): void {
 }
 
 function isResumeUpToDate(): boolean {
-  if (!lastGeneratedResume?.filePath && !lastResumeId) {
+  if (!lastGeneratedResume?.filePath) {
     return false;
   }
   if (!resumeInputSnapshot) {
@@ -283,7 +280,6 @@ function isResumeUpToDate(): boolean {
 
 function clearResumeState(): void {
   lastGeneratedResume = null;
-  lastResumeId = null;
   resumeInputSnapshot = null;
   hideResumeDownload();
 }
@@ -301,16 +297,54 @@ function getCurrentLinkedInJobId(): string {
 }
 
 function clearApplicationNotice() {
-  profileApplicationNotice.textContent = '';
-  profileApplicationNotice.className = 'profile-application-notice hidden';
+  jobApplicationNotice.textContent = '';
+  jobApplicationNotice.className = 'job-application-notice hidden';
 }
 
-function showApplicationNotice(status: 'recorded' | 'applied') {
-  profileApplicationNotice.textContent =
-    status === 'applied'
-      ? 'You already applied to this job with this profile.'
-      : 'You already recorded this job with this profile.';
-  profileApplicationNotice.className = `profile-application-notice notice-${status}`;
+function showApplicationNoticeFromApplication(app: ApplicationRecord) {
+  const kind = resolveApplicationNotice(app);
+  if (!kind) {
+    clearApplicationNotice();
+    return;
+  }
+
+  jobApplicationNotice.textContent = applicationNoticeMessage(kind);
+  jobApplicationNotice.className = `job-application-notice notice-${kind}`;
+}
+
+function applicationWorkflowComplete(): boolean {
+  return (
+    applicationStatus === 'applied' ||
+    applicationStatus === 'resume_generated' ||
+    Boolean(lastGeneratedResume?.fileUrl)
+  );
+}
+
+function buildApplicationLookupPath(): string | null {
+  const linkedInJobId = getCurrentLinkedInJobId();
+  if (!linkedInJobId) {
+    return null;
+  }
+
+  const params = new URLSearchParams({
+    linkedInJobId,
+  });
+  if (currentProfile?.id) {
+    params.set('profileId', currentProfile.id);
+  }
+
+  return `/applications/lookup?${params.toString()}`;
+}
+
+function clearJobSavedNotice() {
+  jobSavedNotice.textContent = '';
+  jobSavedNotice.classList.add('hidden');
+}
+
+function showJobSavedNotice() {
+  jobSavedNotice.textContent =
+    'This job was saved before in shared jobs — skills are pre-filled.';
+  jobSavedNotice.classList.remove('hidden');
 }
 
 function resetApplicationPrefillState(options?: { keepSkills?: boolean }) {
@@ -323,12 +357,13 @@ function resetApplicationPrefillState(options?: { keepSkills?: boolean }) {
     );
 
   lastApplicationId = null;
-  lastResumeId = null;
   applicationStatus = null;
   pendingSkillExtractionCostUsd = 0;
   clearResumeState();
   resetJobCosts();
-  void chrome.storage.local.remove('lastApplicationId');
+  void storageRemove('lastApplicationId').catch(() => {
+    // Extension context may be unavailable after reload.
+  });
   clearApplicationNotice();
 
   if (!keepSkills) {
@@ -336,11 +371,18 @@ function resetApplicationPrefillState(options?: { keepSkills?: boolean }) {
   }
 }
 
+function normalizeCompanyKey(name: string): string {
+  return name.trim().toLowerCase();
+}
+
 function applySavedCompanyBullets(bullets: { company: string; bullets: string }[]) {
   const companies = getSelectedCompanies();
 
   bullets.forEach((entry) => {
-    const index = companies.findIndex((company) => company.name === entry.company);
+    const targetKey = normalizeCompanyKey(entry.company);
+    const index = companies.findIndex(
+      (company) => normalizeCompanyKey(company.name) === targetKey,
+    );
     if (index < 0 || !entry.bullets?.trim()) return;
 
     const textarea = companyBulletsList.querySelector<HTMLTextAreaElement>(
@@ -355,16 +397,29 @@ function applySavedCompanyBullets(bullets: { company: string; bullets: string }[
 }
 
 async function applyApplicationPrefill(
-  app: StoredApplication,
-  token: string,
+  app: ApplicationRecord,
+  _token: string,
 ): Promise<void> {
+  if (app.jobDescription?.trim()) {
+    const savedDescription = app.jobDescription.trim();
+    const currentDescription = jdText.value.trim();
+    if (!currentDescription || savedDescription.length > currentDescription.length) {
+      jdText.value = savedDescription;
+      updateJdHighlight();
+    }
+  }
+
   lastApplicationId = app.id;
-  applicationStatus = app.status === 'applied' ? 'applied' : 'recorded';
-  lastResumeId = app.resumeId || null;
+  applicationStatus =
+    app.status === 'applied'
+      ? 'applied'
+      : app.resumeUrl?.trim() || app.status === 'resume_generated'
+        ? 'resume_generated'
+        : app.status || 'recorded';
   await setStorage({ lastApplicationId: app.id });
 
-  if (app.skills) {
-    displaySkillsJson(app.skills, { skipDirty: true });
+  if (app.skills && hasSkillsContent(app.skills as ApplicationSkills)) {
+    displaySkillsJson(app.skills as ApplicationSkills, { skipDirty: true });
     pendingSkillExtractionCostUsd = 0;
   }
 
@@ -375,24 +430,17 @@ async function applyApplicationPrefill(
     applySavedCompanyBullets(app.companyBullets);
   }
 
-  if (app.resumeId) {
-    try {
-      const resume = await apiRequest<GeneratedResumeInfo & { id: string }>(
-        `/resumes/${app.resumeId}`,
-        { token },
-      );
-      lastGeneratedResume = {
-        filePath: resume.filePath,
-        fileName: resume.fileName,
-        fileUrl: resume.fileUrl,
-      };
-      if (resume.fileName || resume.filePath) {
-        showResumeDownload(resume.fileName || 'Resume');
-      }
-      commitResumeInputSnapshot();
-    } catch {
-      clearResumeState();
+  if (app.resumeUrl) {
+    const filePath = filePathFromDownloadUrl(app.resumeUrl);
+    lastGeneratedResume = {
+      fileUrl: app.resumeUrl,
+      filePath,
+      fileName: fileNameFromDownloadUrl(app.resumeUrl),
+    };
+    if (filePath) {
+      showResumeDownload(lastGeneratedResume.fileName || 'Resume');
     }
+    commitResumeInputSnapshot();
   } else {
     hideResumeDownload();
     markResumeInputsChanged();
@@ -400,57 +448,60 @@ async function applyApplicationPrefill(
 
   updateAppliedButton();
   updateActionButtons();
+  showApplicationNoticeFromApplication(app);
 }
 
-async function syncCachedSkillsForCurrentJob(): Promise<void> {
+async function syncCachedSkillsForCurrentJob(): Promise<boolean> {
   const linkedInJobId = getCurrentLinkedInJobId();
-  if (!linkedInJobId) return;
+  if (!linkedInJobId) {
+    clearJobSavedNotice();
+    return false;
+  }
 
   if (extractedSkills && skillsExtractedForJobId === linkedInJobId) {
-    return;
+    return skillsLoadedFromCache;
   }
 
   const storage = await getStorage();
-  if (!storage.token) return;
+  if (!storage.token) {
+    clearJobSavedNotice();
+    return false;
+  }
 
   try {
     const response = await apiRequest<{
       skills: ApplicationSkills;
       fromCache?: boolean;
     } | null>(
-      `/applications/skills?linkedInJobId=${encodeURIComponent(linkedInJobId)}`,
+      `/jobs/lookup?linkedInJobId=${encodeURIComponent(linkedInJobId)}`,
       { token: storage.token },
     );
 
     if (response?.skills && hasSkillsContent(response.skills)) {
-      skillsLoadedFromCache = true;
+      skillsLoadedFromCache = Boolean(response.fromCache);
       displaySkillsJson(response.skills, { skipDirty: true });
+      if (skillsLoadedFromCache) {
+        showJobSavedNotice();
+      } else {
+        clearJobSavedNotice();
+      }
       updateJobCostPanel();
       updateActionButtons();
+      return skillsLoadedFromCache;
     }
   } catch {
     // Cached skills unavailable.
   }
+
+  clearJobSavedNotice();
+  return false;
 }
 
 async function syncExistingApplicationForCurrentJob(): Promise<void> {
-  const linkedInJobId = getCurrentLinkedInJobId();
-  const profileId = profileSelect.value;
+  const lookupPath = buildApplicationLookupPath();
 
-  if (!linkedInJobId) {
+  if (!lookupPath) {
     resetApplicationPrefillState({ keepSkills: true });
-    return;
-  }
-
-  if (!profileId) {
-    lastApplicationId = null;
-    applicationStatus = null;
-    clearResumeState();
-    resetJobCosts();
-    clearApplicationNotice();
-    void chrome.storage.local.remove('lastApplicationId');
-    updateAppliedButton();
-    updateActionButtons();
     return;
   }
 
@@ -460,14 +511,13 @@ async function syncExistingApplicationForCurrentJob(): Promise<void> {
   if (!storage.token) return;
 
   try {
-    const application = await apiRequest<StoredApplication | null>(
-      `/applications/lookup?linkedInJobId=${encodeURIComponent(linkedInJobId)}&profileId=${encodeURIComponent(profileId)}`,
-      { token: storage.token },
-    );
+    const lookupResponse = await apiRequest<
+      ApplicationRecord | { found: boolean; application: ApplicationRecord | null }
+    >(lookupPath, { token: storage.token });
+    const application = unwrapApplicationLookup(lookupResponse);
 
     if (application) {
       await applyApplicationPrefill(application, storage.token);
-      showApplicationNotice(application.status === 'applied' ? 'applied' : 'recorded');
       return;
     }
   } catch {
@@ -478,14 +528,16 @@ async function syncExistingApplicationForCurrentJob(): Promise<void> {
 }
 
 async function refreshJobSkillsAndApplication(): Promise<void> {
-  await syncCachedSkillsForCurrentJob();
   await syncExistingApplicationForCurrentJob();
+  if (!lastApplicationId) {
+    await syncCachedSkillsForCurrentJob();
+  }
 }
 
 function canRecordApplication(): boolean {
   return (
     jdText.value.trim().length > 0 &&
-    Boolean(profileSelect.value) &&
+    Boolean(currentProfile) &&
     hasSkillsContent(extractedSkills)
   );
 }
@@ -505,11 +557,19 @@ function hideStatus() {
 }
 
 function showAuthUI() {
+  extensionStaleSection.classList.add('hidden');
   authSection.classList.remove('hidden');
   mainSection.classList.add('hidden');
 }
 
+function showExtensionStaleUI() {
+  authSection.classList.add('hidden');
+  mainSection.classList.add('hidden');
+  extensionStaleSection.classList.remove('hidden');
+}
+
 function showMainUI(email: string) {
+  extensionStaleSection.classList.add('hidden');
   authSection.classList.add('hidden');
   mainSection.classList.remove('hidden');
   userEmail.textContent = email || 'Signed in';
@@ -519,10 +579,25 @@ function showMainUI(email: string) {
   updateJobCostPanel();
 }
 
-async function init() {
+let authSessionGeneration = 0;
+let authRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+async function refreshAuthUI(fullInit = false) {
+  const generation = ++authSessionGeneration;
   hideStatus();
 
-  const auth = await ensureAuthenticatedSession();
+  let auth: Awaited<ReturnType<typeof ensureAuthenticatedSession>>;
+  try {
+    auth = await ensureAuthenticatedSession();
+  } catch (error) {
+    if (isExtensionContextError(error)) {
+      showExtensionStaleUI();
+      return;
+    }
+    throw error;
+  }
+
+  if (generation !== authSessionGeneration) return;
 
   if (!auth?.token) {
     showAuthUI();
@@ -530,12 +605,21 @@ async function init() {
   }
 
   showMainUI(auth.email || '');
+
+  if (!fullInit) {
+    await refreshSelectedProfile(auth.token);
+    renderCompanyBulletFields();
+    await refreshJobSkillsAndApplication();
+    updateActionButtons();
+    return;
+  }
+
   jdText.readOnly = true;
   skillsText.readOnly = false;
   skillsText.addEventListener('blur', () => {
     applySkillsFromEditor();
   });
-  await loadProfiles(auth.token);
+  await loadProfile(auth.token);
   await extractJobFromTab();
   await refreshJobSkillsAndApplication();
 
@@ -543,52 +627,102 @@ async function init() {
   updateActionButtons();
 }
 
+function scheduleAuthRefresh(fullInit = false) {
+  if (authRefreshTimer) {
+    clearTimeout(authRefreshTimer);
+  }
+
+  authRefreshTimer = setTimeout(() => {
+    authRefreshTimer = null;
+    void refreshAuthUI(fullInit);
+  }, fullInit ? 0 : 200);
+}
+
+async function init() {
+  if (!isExtensionContextValid()) {
+    showExtensionStaleUI();
+    return;
+  }
+
+  try {
+    await refreshAuthUI(true);
+  } catch (error) {
+    if (isExtensionContextError(error)) {
+      showExtensionStaleUI();
+      return;
+    }
+    throw error;
+  }
+}
+
 function setupSessionRefresh() {
+  if (!isExtensionContextValid()) {
+    return;
+  }
+
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
-      void refreshAuthSession();
+      scheduleAuthRefresh(false);
     }
   });
 
   window.addEventListener('focus', () => {
-    void refreshAuthSession();
+    scheduleAuthRefresh(false);
   });
 
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== 'local') return;
-    if (changes.token) {
-      if (changes.token.newValue) {
-        void init();
-      } else {
+  try {
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area !== 'local') return;
+
+      if (changes.signedOut?.newValue === true) {
+        authSessionGeneration += 1;
         showAuthUI();
+        return;
       }
-    }
-  });
+
+      if (changes.token && !changes.token.newValue) {
+        authSessionGeneration += 1;
+        showAuthUI();
+        return;
+      }
+
+      if (changes.token?.newValue || changes.email?.newValue) {
+        scheduleAuthRefresh(false);
+      }
+    });
+  } catch {
+    // Extension context became unavailable.
+  }
 }
 
 function setupJobDetectionListener() {
-  chrome.runtime.onMessage.addListener((message) => {
-    if (message.type !== 'JOB_DETECTED' || !message.job) return;
+  if (!isExtensionContextValid()) {
+    return;
+  }
 
-    const job = message.job as ExtractedJob;
-    const key = getJobDetectionKey(job);
-    const desc = job.jobDescription?.trim() || '';
+  try {
+    chrome.runtime.onMessage.addListener((message) => {
+      if (message.type !== 'JOB_DETECTED' || !message.job) return;
 
-    if (key === lastAutoDetectedJobKey) {
-      if (!desc || desc.length <= jdText.value.trim().length + 30) return;
-    } else if (!desc) {
-      return;
-    }
+      const job = message.job as ExtractedJob;
+      const key = getJobDetectionKey(job);
+      const desc = job.jobDescription?.trim() || '';
 
-    displayJob(job);
-  });
+      if (key === lastAutoDetectedJobKey) {
+        if (!desc || desc.length <= jdText.value.trim().length + 30) return;
+      } else if (!desc) {
+        return;
+      }
+
+      displayJob(job);
+    });
+  } catch {
+    // Extension context became unavailable.
+  }
 }
 
 async function refreshAuthSession() {
-  const auth = await ensureAuthenticatedSession();
-  if (!auth?.token) {
-    showAuthUI();
-  }
+  scheduleAuthRefresh(false);
 }
 
 function parseSkillString(value?: string): string[] {
@@ -793,30 +927,8 @@ function hasSkillsContent(skills: ApplicationSkills | null): boolean {
   );
 }
 
-function resolveResumeTemplateFormat(profile: Profile): 'text' | 'docx' | '' {
-  if (profile.resumeTemplateFormat === 'docx' || profile.resumeTemplateFormat === 'text') {
-    return profile.resumeTemplateFormat;
-  }
-  if (profile.resumeTemplateFilePath?.trim()) return 'docx';
-  if (profile.resumeTemplate?.trim()) return 'text';
-  return '';
-}
-
 function profileHasTemplate(): boolean {
-  const profile = getSelectedProfile();
-  if (!profile) return false;
-
-  const format = resolveResumeTemplateFormat(profile);
-  if (format === 'docx') {
-    return Boolean(
-      profile.resumeTemplateFilePath?.trim() || profile.resumeTemplateFileName?.trim(),
-    );
-  }
-  if (format === 'text') {
-    return Boolean(profile.resumeTemplate?.trim());
-  }
-
-  return Boolean(profile.resumeTemplateFileName?.trim());
+  return profileHasResumeTemplate(getSelectedProfile());
 }
 
 function textareaHasBulletContent(textarea: HTMLTextAreaElement): boolean {
@@ -846,35 +958,30 @@ function getGenerateResumeBlockers(): string[] {
   const companies = getSelectedCompanies();
   const textareas = companyBulletsList.querySelectorAll('textarea.company-bullet-text');
 
-  if (!profileSelect.value) blockers.push('Select a profile');
+  if (!currentProfile) blockers.push('Load your profile');
   if (!hasSkillsContent(extractedSkills)) blockers.push('Extract skills first');
   if (companies.length === 0) blockers.push('Add companies to your profile in the dashboard');
   else if (textareas.length !== companies.length) {
-    blockers.push('Click Refresh next to Profile to sync company list');
+    blockers.push('Reload the sidebar to sync your company list');
   } else if (!allCompanyBulletsFilled()) {
     blockers.push('Generate bullets for every company');
   }
   if (!profileHasTemplate()) {
-    blockers.push('Upload a resume template in the dashboard (then refresh profiles)');
+    blockers.push('Upload a resume template in the dashboard');
+  }
+  if (applicationWorkflowComplete()) {
+    blockers.push('Resume already generated or job already applied');
   }
   return blockers;
 }
 
 async function refreshSelectedProfile(token?: string): Promise<void> {
-  const selectedId = profileSelect.value;
-  if (!selectedId) return;
-
   const authToken = token || (await getStorage()).token;
   if (!authToken) return;
 
   try {
-    const fresh = await apiRequest<Profile>(`/profiles/${selectedId}`, { token: authToken });
-    const index = profiles.findIndex((profile) => profile.id === selectedId);
-    if (index >= 0) {
-      profiles[index] = { ...profiles[index], ...fresh };
-    } else {
-      profiles.push(fresh);
-    }
+    currentProfile = await apiRequest<Profile>('/profiles/me', { token: authToken });
+    updateProfileSummary();
   } catch {
     // Keep cached profile data if refresh fails.
   }
@@ -986,8 +1093,32 @@ function normalizeCompanies(raw: Profile['companies']): ProfileCompany[] {
     .filter((item): item is ProfileCompany => item !== null);
 }
 
+function updateProfileSummary() {
+  if (!currentProfile) {
+    profileSummary.textContent = 'Loading profile...';
+    profileSummary.className = 'field-hint';
+    profileSetupWarnings.classList.add('hidden');
+    profileSetupWarnings.innerHTML = '';
+    return;
+  }
+
+  profileSummary.textContent = 'Profile loaded successfully.';
+  profileSummary.className = 'field-hint profile-status-ok';
+
+  const warnings = getProfileSetupWarnings(currentProfile);
+  if (warnings.length) {
+    profileSetupWarnings.innerHTML = warnings
+      .map((warning) => `<p>${escapeHtml(warning)}</p>`)
+      .join('');
+    profileSetupWarnings.classList.remove('hidden');
+  } else {
+    profileSetupWarnings.innerHTML = '';
+    profileSetupWarnings.classList.add('hidden');
+  }
+}
+
 function getSelectedProfile(): Profile | undefined {
-  return profiles.find((p) => p.id === profileSelect.value);
+  return currentProfile ?? undefined;
 }
 
 function collectAllCompanyBullets(): { company: string; bullets: string }[] {
@@ -1049,7 +1180,12 @@ function renderCompanyBulletFields() {
   const companies = getSelectedCompanies();
 
   companyBulletsList.innerHTML = '';
-  companyBulletsSection.classList.remove('hidden');
+  companyBulletsSection.classList.toggle('hidden', companies.length === 0);
+
+  if (companies.length === 0) {
+    updateActionButtons();
+    return;
+  }
 
   companies.forEach((company, index) => {
     const item = document.createElement('div');
@@ -1075,7 +1211,18 @@ function renderCompanyBulletFields() {
     countInput.title = 'Number of bullets to generate';
     countInput.dataset.companyIndex = String(index);
 
+    const generateBtn = document.createElement('button');
+    generateBtn.type = 'button';
+    generateBtn.className = 'btn btn-secondary btn-generate-company';
+    generateBtn.textContent = 'Generate';
+    generateBtn.dataset.companyIndex = String(index);
+    generateBtn.disabled = !hasSkillsContent(extractedSkills) || applicationWorkflowComplete();
+    generateBtn.addEventListener('click', () => {
+      void generateCompanyBullets(index);
+    });
+
     controls.appendChild(countInput);
+    controls.appendChild(generateBtn);
 
     header.appendChild(label);
     header.appendChild(controls);
@@ -1088,6 +1235,77 @@ function renderCompanyBulletFields() {
   });
 
   updateActionButtons();
+}
+
+async function generateCompanyBullets(companyIndex: number) {
+  const profile = getSelectedProfile();
+  const companies = getSelectedCompanies();
+  const company = companies[companyIndex];
+  if (!profile || !company || !extractedSkills || applicationWorkflowComplete()) return;
+
+  const storage = await getStorage();
+  if (!storage.token) return;
+
+  const countInput = companyBulletsList.querySelector<HTMLInputElement>(
+    `input.company-bullet-count[data-company-index="${companyIndex}"]`,
+  );
+  const textarea = companyBulletsList.querySelector<HTMLTextAreaElement>(
+    `textarea[data-company-index="${companyIndex}"]`,
+  );
+  const generateBtn = companyBulletsList.querySelector<HTMLButtonElement>(
+    `button.btn-generate-company[data-company-index="${companyIndex}"]`,
+  );
+
+  const bulletCount = Math.max(1, Number(countInput?.value) || company.bulletCount || 1);
+  const jobData = getJobData(jdText.value.trim());
+
+  hideStatus();
+  if (generateBtn) {
+    generateBtn.disabled = true;
+    generateBtn.textContent = '...';
+  }
+
+  try {
+    const response = await apiRequest<GenerateCompanyBulletsResponse>(
+      '/resumes/generate-bullets',
+      {
+        method: 'POST',
+        token: storage.token,
+        body: JSON.stringify({
+          profileId: profile.id,
+          companyName: company.name,
+          skills: extractedSkills,
+          bulletCount,
+          jobDescription: jdText.value.trim() || undefined,
+          targetJobCompany: jobData.companyName,
+          targetJobTitle: jobData.jobTitle,
+          applicationId: lastApplicationId || undefined,
+        }),
+      },
+    );
+
+    applyCompanyBulletResult(companyIndex, response.company, response.bullets);
+
+    const filledCount = response.bullets.filter((bullet) => bullet.trim()).length;
+    showStatus(
+      filledCount > 0
+        ? `Generated ${filledCount} bullet${filledCount === 1 ? '' : 's'} for ${company.name}.`
+        : `No bullets generated for ${company.name}.`,
+      filledCount > 0 ? 'success' : 'info',
+    );
+  } catch (err) {
+    showStatus(
+      err instanceof Error ? err.message : `Failed to generate bullets for ${company.name}`,
+      'error',
+    );
+  } finally {
+    if (generateBtn) {
+      generateBtn.disabled =
+        !hasSkillsContent(extractedSkills) || applicationWorkflowComplete();
+      generateBtn.textContent = 'Generate';
+    }
+    updateActionButtons();
+  }
 }
 
 async function performExtractSkills(token: string): Promise<ExtractApplicationSkillsResponse> {
@@ -1106,6 +1324,12 @@ async function performExtractSkills(token: string): Promise<ExtractApplicationSk
       body: JSON.stringify({
         jobDescription: description,
         companyName: jobData.companyName,
+        jobTitle: jobData.jobTitle,
+        linkedInJobUrl: jobData.linkedInJobUrl || jobData.jobUrl,
+        realJobUrl: jobData.realJobUrl || '',
+        location: jobData.location,
+        companyLogoUrl: jobData.companyLogoUrl,
+        profileId: currentProfile?.id || undefined,
         applicationId: lastApplicationId || undefined,
         linkedInJobId: getCurrentLinkedInJobId() || undefined,
       }),
@@ -1114,18 +1338,41 @@ async function performExtractSkills(token: string): Promise<ExtractApplicationSk
 
   displaySkillsJson(response.skills);
   skillsLoadedFromCache = Boolean(response.fromCache);
-  pendingSkillExtractionCostUsd = response.fromCache ? 0 : (response.costUsd ?? 0);
+  pendingSkillExtractionCostUsd = 0;
 
-  if (lastApplicationId) {
+  if (response.applicationId) {
+    lastApplicationId = response.applicationId;
+    await setStorage({ lastApplicationId: response.applicationId });
+  }
+
+  if (response.application) {
+    applicationStatus =
+      response.application.status === 'applied'
+        ? 'applied'
+        : response.application.resumeUrl?.trim() ||
+            response.application.status === 'resume_generated'
+          ? 'resume_generated'
+          : response.application.status || 'extracted';
+    applyCostBreakdownFromApplication(response.application);
+  } else if (lastApplicationId) {
     await refreshCostFromApplication(token);
   } else if (!response.fromCache && response.costUsd && response.costUsd > 0) {
     addLocalCost('skillExtraction', response.costUsd);
-    updateJobCostPanel();
-  } else {
-    updateJobCostPanel();
   }
 
-  if (profileSelect.value) {
+  if (response.fromCache) {
+    showJobSavedNotice();
+  } else {
+    clearJobSavedNotice();
+  }
+
+  updateJobCostPanel();
+
+  if (response.application) {
+    showApplicationNoticeFromApplication(response.application);
+  }
+
+  if (currentProfile) {
     await refreshSelectedProfile(token);
     updateActionButtons();
   }
@@ -1186,7 +1433,7 @@ async function performGenerateAllBullets(token: string): Promise<GenerateAllComp
     updateJobCostPanel();
   }
 
-  if (profileSelect.value) {
+  if (currentProfile) {
     await refreshSelectedProfile(token);
   }
 
@@ -1200,7 +1447,7 @@ async function performGenerateAllBullets(token: string): Promise<GenerateAllComp
 }
 
 async function performGenerateResume(token: string) {
-  if (!profileSelect.value) {
+  if (!currentProfile) {
     throw new Error('Select a profile first.');
   }
 
@@ -1238,7 +1485,7 @@ async function performGenerateResume(token: string) {
     token,
     body: JSON.stringify({
       applicationId: application.id,
-      profileId: profileSelect.value,
+      profileId: currentProfile?.id || '',
       skills: extractedSkills,
       companyBullets,
     }),
@@ -1249,9 +1496,6 @@ async function performGenerateResume(token: string) {
     fileName: resume.fileName,
     fileUrl: resume.fileUrl,
   };
-  if (resume.id) {
-    lastResumeId = resume.id;
-  }
   showResumeDownload(resume.fileName || 'Resume');
   commitResumeInputSnapshot();
   await refreshCostFromApplication(token);
@@ -1280,7 +1524,7 @@ function getOneClickDoneBlockers(): string[] {
   if (!hasLoadedJobDescription()) {
     blockers.push('Load a job description first');
   }
-  if (!profileSelect.value) {
+  if (!currentProfile) {
     blockers.push('Select a profile');
   }
   if (getSelectedCompanies().length === 0) {
@@ -1288,6 +1532,9 @@ function getOneClickDoneBlockers(): string[] {
   }
   if (!profileHasTemplate()) {
     blockers.push('Upload a resume template');
+  }
+  if (applicationWorkflowComplete()) {
+    blockers.push('Resume already generated or job already applied');
   }
 
   return blockers;
@@ -1315,7 +1562,7 @@ async function runOneClickDone() {
   try {
     await performExtractSkills(storage.token);
 
-    if (profileSelect.value && companyBulletsList.children.length === 0) {
+    if (currentProfile && companyBulletsList.children.length === 0) {
       renderCompanyBulletFields();
     }
 
@@ -1406,19 +1653,23 @@ function updateActionButtons() {
     : 'Open a LinkedIn job and load the description first';
   updatePrimaryActionsVisibility();
   btnGenerate.disabled =
-    generateBlockers.length > 0 || oneClickInProgress || resumeUpToDate;
+    generateBlockers.length > 0 || oneClickInProgress || resumeUpToDate || applicationWorkflowComplete();
   btnGenerate.title =
-    generateBlockers.length > 0
+    applicationWorkflowComplete()
+      ? 'Resume already generated or job already applied'
+      : generateBlockers.length > 0
       ? generateBlockers.join(' · ')
       : resumeUpToDate
         ? 'Resume matches current skills and bullets'
-        : lastGeneratedResume?.filePath || lastResumeId
+        : lastGeneratedResume?.filePath
           ? 'Regenerate resume with your latest changes'
           : 'Generate tailored resume from your template and company bullets';
 
-  btnOneClickDone.disabled = !canOneClickDone();
+  btnOneClickDone.disabled = !canOneClickDone() || applicationWorkflowComplete();
   const oneClickBlockers = getOneClickDoneBlockers();
-  btnOneClickDone.title = !hasJd
+  btnOneClickDone.title = applicationWorkflowComplete()
+    ? 'Resume already generated or job already applied'
+    : !hasJd
     ? 'Open a LinkedIn job and load the description first'
     : oneClickInProgress
       ? 'Running One-Click Done...'
@@ -1429,14 +1680,33 @@ function updateActionButtons() {
   btnDownloadResume.disabled = !lastGeneratedResume?.filePath || oneClickInProgress;
 
   const hasCompanies = getSelectedCompanies().length > 0;
-  btnGenerateAllBullets.disabled = !hasSkills || !hasCompanies || oneClickInProgress;
-  btnGenerateAllBullets.title = !hasSkills
-    ? 'Extract skills before generating resume bullets'
-    : !hasCompanies
-      ? 'Add companies to your profile'
-      : 'Generate bullets for every company using each bullet count';
+  btnGenerateAllBullets.disabled =
+    !hasSkills || !hasCompanies || oneClickInProgress || applicationWorkflowComplete();
+  btnGenerateAllBullets.title = applicationWorkflowComplete()
+    ? 'Resume already generated or job already applied'
+    : !hasSkills
+      ? 'Extract skills before generating resume bullets'
+      : !hasCompanies
+        ? 'Add companies to your profile'
+        : 'Generate bullets for every company using each bullet count';
+
+  companyBulletsList
+    .querySelectorAll<HTMLButtonElement>('button.btn-generate-company')
+    .forEach((btn) => {
+      btn.disabled = !hasSkills || applicationWorkflowComplete();
+    });
 
   updateAppliedButton();
+}
+
+function canMarkApplicationApplied(): boolean {
+  if (applicationStatus === 'applied') {
+    return false;
+  }
+
+  return (
+    applicationStatus === 'resume_generated' || Boolean(lastGeneratedResume?.fileUrl?.trim())
+  );
 }
 
 function updateAppliedButton() {
@@ -1448,9 +1718,11 @@ function updateAppliedButton() {
   }
 
   btnApplied.textContent = 'Applied';
-  btnApplied.title = 'Mark this application as submitted';
-  btnApplied.disabled =
-    applicationStatus === 'applied' || !canRecordApplication() || oneClickInProgress;
+  const canMark = canMarkApplicationApplied();
+  btnApplied.title = canMark
+    ? 'Mark this application as submitted'
+    : 'Generate a resume before marking as applied';
+  btnApplied.disabled = !canMark || oneClickInProgress;
 }
 
 function setCompanyAvatar(logoUrl: string | undefined, companyName: string) {
@@ -1475,7 +1747,7 @@ function setCompanyAvatar(logoUrl: string | undefined, companyName: string) {
   companyAvatar.textContent = companyName.charAt(0).toUpperCase();
 }
 
-function displayJob(job: ExtractedJob) {
+function displayJob(job: ExtractedJob): Promise<void> {
   lastAutoDetectedJobKey = getJobDetectionKey(job);
 
   const incomingJobId = job.linkedInJobId?.trim() || '';
@@ -1489,6 +1761,7 @@ function displayJob(job: ExtractedJob) {
     clearSkillsField();
     clearCompanyBulletFields();
     resetJobCosts();
+    clearJobSavedNotice();
   }
 
   currentJob = job;
@@ -1500,8 +1773,15 @@ function displayJob(job: ExtractedJob) {
 
   jobPanel.classList.remove('hidden');
   noJob.classList.add('hidden');
-  void refreshJobSkillsAndApplication();
-  updateActionButtons();
+  return refreshJobSkillsAndApplication().then(() => {
+    if (
+      getSelectedCompanies().length > 0 &&
+      companyBulletsList.childElementCount === 0
+    ) {
+      renderCompanyBulletFields();
+    }
+    updateActionButtons();
+  });
 }
 
 function clearJobDisplay() {
@@ -1510,6 +1790,7 @@ function clearJobDisplay() {
   clearSkillsField();
   clearCompanyBulletFields();
   resetJobCosts();
+  clearJobSavedNotice();
   jdText.value = '';
   updateJdHighlight();
   companyAvatar.innerHTML = '?';
@@ -1535,7 +1816,7 @@ function getJobData(description: string) {
     jobUrl: linkedInJobUrl,
     linkedInJobUrl,
     realJobUrl,
-    companyLogoUrl: undefined,
+    companyLogoUrl: '',
   };
 }
 
@@ -1543,7 +1824,7 @@ function buildApplicationUpdatePayload(description: string) {
   const jobData = getJobData(description);
 
   return {
-    profileId: profileSelect.value,
+    profileId: currentProfile?.id || '',
     companyName: jobData.companyName,
     jobTitle: jobData.jobTitle,
     jobDescription: description,
@@ -1555,7 +1836,7 @@ function buildApplicationUpdatePayload(description: string) {
     companyLogoUrl: jobData.companyLogoUrl,
     skills: extractedSkills || undefined,
     companyBullets: collectAllCompanyBullets(),
-    resumeId: lastResumeId || undefined,
+    resumeUrl: lastGeneratedResume?.fileUrl || undefined,
   };
 }
 
@@ -1613,14 +1894,24 @@ async function extractJobFromTab(showFeedback = false) {
     const response = await requestJobExtraction(tab.id);
 
     if (response?.job?.jobDescription) {
-      displayJob(response.job);
+      await displayJob(response.job);
       if (showFeedback) {
-        showStatus('Job description extracted.', 'success');
+        showStatus(
+          skillsLoadedFromCache
+            ? 'Job loaded. This job was saved before — skills are pre-filled.'
+            : 'Job description extracted.',
+          skillsLoadedFromCache ? 'info' : 'success',
+        );
       }
     } else if (response?.job) {
-      displayJob(response.job);
+      await displayJob(response.job);
       if (showFeedback) {
-        showStatus('Job found but description is empty. Scroll to "About the job" and try again.', 'info');
+        showStatus(
+          skillsLoadedFromCache
+            ? 'Job loaded. This job was saved before — skills are pre-filled.'
+            : 'Job found but description is empty. Scroll to "About the job" and try again.',
+          skillsLoadedFromCache ? 'info' : 'info',
+        );
       }
     } else {
       clearJobDisplay();
@@ -1678,130 +1969,56 @@ async function extractSkillsFromApi() {
   }
 }
 
-async function loadProfiles(token: string, options?: { notify?: boolean }) {
-  const previousSelection = profileSelect.value;
-  const previousCompaniesCount = previousSelection
-    ? normalizeCompanies(profiles.find((profile) => profile.id === previousSelection)?.companies)
-        .length
-    : 0;
-  const previousDomTextareaCount = companyBulletsList.querySelectorAll(
-    'textarea.company-bullet-text',
-  ).length;
-
+async function loadProfile(token: string, options?: { notify?: boolean }) {
   try {
-    profiles = await apiRequest<Profile[]>('/profiles', { token });
-    profileSelect.innerHTML = '<option value="">Select a profile...</option>';
-    profiles.forEach((p) => {
-      const option = document.createElement('option');
-      option.value = p.id;
-      option.textContent = p.profileName;
-      profileSelect.appendChild(option);
-    });
-
-    let nextSelection = '';
-    if (previousSelection && profiles.some((p) => p.id === previousSelection)) {
-      nextSelection = previousSelection;
-    } else if (profiles.length === 1) {
-      nextSelection = profiles[0].id;
-    }
-
-    profileSelect.value = nextSelection;
-
-    if (nextSelection) {
-      await refreshSelectedProfile(token);
-    }
-
-    const selectedProfile = profiles.find((profile) => profile.id === nextSelection);
-    const nextCompaniesCount = normalizeCompanies(selectedProfile?.companies).length;
-    const profileChanged = nextSelection !== previousSelection;
-    const companiesChanged =
-      nextCompaniesCount !== previousCompaniesCount ||
-      nextCompaniesCount !== previousDomTextareaCount;
-
-    if (profileChanged || companiesChanged || companyBulletsList.childElementCount === 0) {
-      renderCompanyBulletFields();
-    } else {
-      updatePrimaryActionsVisibility();
-      updateActionButtons();
-    }
-
+    currentProfile = await apiRequest<Profile>('/profiles/me', { token });
+    updateProfileSummary();
+    renderCompanyBulletFields();
     await refreshJobSkillsAndApplication();
 
     if (options?.notify) {
-      showStatus(
-        profiles.length
-          ? `Loaded ${profiles.length} profile${profiles.length === 1 ? '' : 's'}.`
-          : 'No profiles yet. Create one in the dashboard.',
-        profiles.length ? 'success' : 'info',
-      );
+      showStatus('Profile loaded.', 'success');
     }
   } catch (err) {
-    profiles = [];
+    currentProfile = null;
+    updateProfileSummary();
+    renderCompanyBulletFields();
     showStatus(
-      err instanceof Error ? err.message : 'Could not load profiles. Is the API running?',
+      err instanceof Error ? err.message : 'Could not load profile. Is the API running?',
       'error',
     );
   }
 }
 
-async function refreshProfiles() {
-  const auth = await ensureAuthenticatedSession();
-  if (!auth?.token) {
-    showAuthUI();
-    showStatus('Sign in to load profiles.', 'error');
-    return;
-  }
-
-  btnRefreshProfiles.disabled = true;
-  btnRefreshProfiles.textContent = '...';
-
-  try {
-    await loadProfiles(auth.token, { notify: true });
-  } finally {
-    btnRefreshProfiles.disabled = false;
-    btnRefreshProfiles.textContent = 'Refresh';
-  }
-}
-
 document.getElementById('btn-signin')!.addEventListener('click', () => {
-  openAuthPage('signin');
+  openLoginPage();
 });
 
-dashboardLink.href = '#';
-dashboardLink.addEventListener('click', (event) => {
-  event.preventDefault();
-  openWebApp('/profiles');
-});
-
-btnRefreshProfiles.addEventListener('click', () => {
-  void refreshProfiles();
+document.getElementById('btn-reload-sidebar')!.addEventListener('click', () => {
+  requestSidebarReload();
 });
 
 document.getElementById('btn-signup')!.addEventListener('click', () => {
-  openAuthPage('signup');
+  openSignUpPage();
 });
 
 document.getElementById('btn-signout')!.addEventListener('click', async () => {
-  await signOut();
-  profiles = [];
+  authSessionGeneration += 1;
+  try {
+    await signOut();
+  } catch (error) {
+    if (isExtensionContextError(error)) {
+      showExtensionStaleUI();
+      return;
+    }
+  }
+  currentProfile = null;
   currentJob = null;
   extractedSkills = null;
   lastAutoDetectedJobKey = '';
   resetWorkflowState();
   clearJobDisplay();
   showAuthUI();
-});
-
-profileSelect.addEventListener('change', () => {
-  markResumeInputsChanged();
-  resetJobCosts();
-  void (async () => {
-    await refreshSelectedProfile();
-    renderCompanyBulletFields();
-    await refreshJobSkillsAndApplication();
-    updatePrimaryActionsVisibility();
-    updateActionButtons();
-  })();
 });
 
 jdText.addEventListener('scroll', () => {
@@ -1824,23 +2041,26 @@ btnOneClickDone.addEventListener('click', () => {
   void runOneClickDone();
 });
 
-async function saveApplication(token: string): Promise<StoredApplication | null> {
+async function saveApplication(token: string): Promise<ApplicationRecord | null> {
   const description = jdText.value.trim();
-  if (!description || !profileSelect.value) return null;
+  if (!description || !currentProfile) return null;
 
   if (!lastApplicationId) {
-    const linkedInJobId = getCurrentLinkedInJobId();
-    const profileId = profileSelect.value;
-    if (linkedInJobId && profileId) {
+    const lookupPath = buildApplicationLookupPath();
+    if (lookupPath) {
       try {
-        const existing = await apiRequest<StoredApplication | null>(
-          `/applications/lookup?linkedInJobId=${encodeURIComponent(linkedInJobId)}&profileId=${encodeURIComponent(profileId)}`,
-          { token },
-        );
+        const lookupResponse = await apiRequest<
+          ApplicationRecord | { found: boolean; application: ApplicationRecord | null }
+        >(lookupPath, { token });
+        const existing = unwrapApplicationLookup(lookupResponse);
         if (existing?.id) {
           lastApplicationId = existing.id;
           applicationStatus =
-            existing.status === 'applied' ? 'applied' : 'recorded';
+            existing.status === 'applied'
+              ? 'applied'
+              : existing.resumeUrl?.trim() || existing.status === 'resume_generated'
+                ? 'resume_generated'
+                : existing.status || 'recorded';
         }
       } catch {
         // Continue with create when lookup fails.
@@ -1851,55 +2071,65 @@ async function saveApplication(token: string): Promise<StoredApplication | null>
   const payload = lastApplicationId
     ? buildApplicationUpdatePayload(description)
     : buildApplicationCreatePayload(description);
-  const application = lastApplicationId
-    ? await apiRequest<StoredApplication>(`/applications/${lastApplicationId}`, {
+  const rawApplication = lastApplicationId
+    ? await apiRequest<ApplicationRecord>(`/applications/${lastApplicationId}`, {
         method: 'PATCH',
         token,
         body: JSON.stringify(payload),
       })
-    : await apiRequest<StoredApplication>('/applications', {
+    : await apiRequest<ApplicationRecord>('/applications', {
         method: 'POST',
         token,
         body: JSON.stringify(payload),
       });
+  const application = normalizeApplicationRecord(rawApplication);
+  if (!application) return null;
 
   lastApplicationId = application.id;
-  applicationStatus = application.status === 'applied' ? 'applied' : 'recorded';
-  lastResumeId = application.resumeId || lastResumeId;
+  applicationStatus =
+    application.status === 'applied'
+      ? 'applied'
+      : application.resumeUrl?.trim() || application.status === 'resume_generated'
+        ? 'resume_generated'
+        : application.status || 'recorded';
+  if (application.resumeUrl) {
+    lastGeneratedResume = {
+      fileUrl: application.resumeUrl,
+      filePath: filePathFromDownloadUrl(application.resumeUrl),
+      fileName: fileNameFromDownloadUrl(application.resumeUrl),
+    };
+  }
   await setStorage({ lastApplicationId: application.id });
   pendingSkillExtractionCostUsd = 0;
 
-  if (application.skills) {
-    displaySkillsJson(application.skills, { skipDirty: true });
+  if (application.skills && hasSkillsContent(application.skills as ApplicationSkills)) {
+    displaySkillsJson(application.skills as ApplicationSkills, { skipDirty: true });
   }
 
   if (application.aiCostBreakdown || application.aiCostUsd) {
     applyCostBreakdownFromApplication(application);
   }
 
-  if (applicationStatus === 'recorded') {
-    showApplicationNotice('recorded');
-  } else if (applicationStatus === 'applied') {
-    showApplicationNotice('applied');
-  }
+  showApplicationNoticeFromApplication(application);
+  updateActionButtons();
   return application;
 }
 
-async function markApplicationApplied(token: string): Promise<StoredApplication | null> {
+async function markApplicationApplied(token: string): Promise<ApplicationRecord | null> {
   const saved = await saveApplication(token);
   if (!saved) return null;
 
-  const application = await apiRequest<StoredApplication>(
-    `/applications/${saved.id}/applied`,
-    {
+  const application = normalizeApplicationRecord(
+    await apiRequest<ApplicationRecord>(`/applications/${saved.id}/applied`, {
       method: 'PATCH',
       token,
-    },
+    }),
   );
+  if (!application) return null;
 
   lastApplicationId = application.id;
   applicationStatus = 'applied';
-  showApplicationNotice('applied');
+  showApplicationNoticeFromApplication(application);
   updateAppliedButton();
   return application;
 }
@@ -1910,8 +2140,8 @@ btnApplied.addEventListener('click', async () => {
   const storage = await getStorage();
   if (!storage.token) return;
 
-  if (!canRecordApplication()) {
-    showStatus('Select a profile and extract skills before marking as applied.', 'error');
+  if (!canMarkApplicationApplied()) {
+    showStatus('Generate a resume before marking as applied.', 'error');
     return;
   }
 
@@ -1931,7 +2161,7 @@ btnApplied.addEventListener('click', async () => {
 });
 
 btnGenerate.addEventListener('click', async () => {
-  if (!profileSelect.value || !extractedSkills) return;
+  if (!currentProfile || !extractedSkills) return;
 
   if (!allCompanyBulletsFilled()) {
     showStatus('Fill in resume bullets for every company first.', 'error');
@@ -1997,6 +2227,10 @@ btnDownloadResume.addEventListener('click', async () => {
   }
 });
 
-init();
+installExtensionErrorHandlers(() => {
+  showExtensionStaleUI();
+});
+
+void init();
 setupSessionRefresh();
 setupJobDetectionListener();

@@ -1,28 +1,18 @@
 import { getStorage, setStorage, WEB_URL } from './shared';
-import { validateAuthToken } from './auth-validation';
+import { storageGet } from './extension-storage';
+import {
+  clearAuthStorage,
+  isAppWebUrl,
+  persistAuthSession,
+  SIGNED_OUT_KEY,
+} from './auth-session';
 
 const WEB_URL_PATTERNS = [
   `${WEB_URL.replace(/\/$/, '')}/*`,
   'http://localhost:5173/*',
+  'http://localhost:3001/*',
+  'http://localhost:3002/*',
 ];
-
-async function persistValidatedSession(
-  token: string,
-  email: string,
-): Promise<{ token: string; email: string } | null> {
-  const validated = await validateAuthToken(token);
-  if (!validated) return null;
-
-  await setStorage({
-    token: validated.token,
-    email: validated.email || email,
-  });
-
-  return {
-    token: validated.token,
-    email: validated.email || email,
-  };
-}
 
 async function readTokenFromTab(
   tabId: number,
@@ -32,6 +22,14 @@ async function readTokenFromTab(
       target: { tabId },
       world: 'MAIN',
       func: () => {
+        try {
+          if (sessionStorage.getItem('li_facilitator_signed_out') === '1') {
+            return null;
+          }
+        } catch {
+          // ignore
+        }
+
         const token = localStorage.getItem('li_facilitator_token');
         if (!token) return null;
 
@@ -51,39 +49,74 @@ async function readTokenFromTab(
   }
 }
 
-async function syncAuthFromOpenWebTabs(): Promise<{ token: string; email: string } | null> {
+async function syncAuthFromActiveWebTab(): Promise<{ token: string; email: string } | null> {
+  let storage: Record<string, unknown>;
+  try {
+    storage = await storageGet<Record<string, unknown>>([SIGNED_OUT_KEY]);
+  } catch {
+    return null;
+  }
+
+  if (storage[SIGNED_OUT_KEY]) {
+    return null;
+  }
+
+  const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!activeTab?.id || !isAppWebUrl(activeTab.url)) {
+    return null;
+  }
+
+  const data = await readTokenFromTab(activeTab.id);
+  if (!data?.token) {
+    return null;
+  }
+
+  return persistAuthSession(data.token, data.email);
+}
+
+async function resolveAuthSession(): Promise<{ token: string; email: string } | null> {
+  const storage = await getStorage();
+  if (storage.signedOut) {
+    return null;
+  }
+
+  if (storage.token) {
+    const validated = await persistAuthSession(storage.token, storage.email || '');
+    if (validated) return validated;
+    await clearAuthStorage();
+    return null;
+  }
+
+  return syncAuthFromActiveWebTab();
+}
+
+async function syncAuthToAllWebTabs(token: string, email: string): Promise<void> {
   for (const url of WEB_URL_PATTERNS) {
     const tabs = await chrome.tabs.query({ url });
     for (const tab of tabs) {
       if (!tab.id) continue;
 
-      const data = await readTokenFromTab(tab.id);
-      if (!data?.token) continue;
-
-      const validated = await persistValidatedSession(data.token, data.email);
-      if (validated) return validated;
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          world: 'MAIN',
+          func: (nextToken: string, nextEmail: string) => {
+            try {
+              sessionStorage.removeItem('li_facilitator_signed_out');
+            } catch {
+              // ignore
+            }
+            localStorage.setItem('li_facilitator_token', nextToken);
+            localStorage.setItem('li_facilitator_email', nextEmail);
+            window.dispatchEvent(new CustomEvent('li-facilitator-auth-from-extension'));
+          },
+          args: [token, email],
+        });
+      } catch {
+        // Tab may not allow scripting.
+      }
     }
   }
-
-  return null;
-}
-
-async function resolveAuthSession(options?: {
-  preferWebTabs?: boolean;
-}): Promise<{ token: string; email: string } | null> {
-  if (!options?.preferWebTabs) {
-    const fromExtension = await getValidatedStorage();
-    if (fromExtension) return fromExtension;
-  }
-
-  const fromWebTabs = await syncAuthFromOpenWebTabs();
-  if (fromWebTabs) return fromWebTabs;
-
-  if (options?.preferWebTabs) {
-    return getValidatedStorage();
-  }
-
-  return null;
 }
 
 async function clearWebAuthFromOpenTabs(): Promise<void> {
@@ -99,7 +132,12 @@ async function clearWebAuthFromOpenTabs(): Promise<void> {
           func: () => {
             localStorage.removeItem('li_facilitator_token');
             localStorage.removeItem('li_facilitator_email');
-            window.dispatchEvent(new CustomEvent('li-facilitator-auth-sync'));
+            try {
+              sessionStorage.setItem('li_facilitator_signed_out', '1');
+            } catch {
+              // ignore
+            }
+            window.dispatchEvent(new CustomEvent('li-facilitator-auth-clear'));
           },
         });
       } catch {
@@ -118,9 +156,13 @@ async function pushAuthToTab(tabId: number): Promise<void> {
       target: { tabId },
       world: 'MAIN',
       func: (token: string, email: string) => {
+        try {
+          sessionStorage.removeItem('li_facilitator_signed_out');
+        } catch {
+          // ignore
+        }
         localStorage.setItem('li_facilitator_token', token);
         localStorage.setItem('li_facilitator_email', email);
-        window.dispatchEvent(new CustomEvent('li-facilitator-auth-sync'));
         window.dispatchEvent(new CustomEvent('li-facilitator-auth-from-extension'));
       },
       args: [validated.token, validated.email],
@@ -130,39 +172,26 @@ async function pushAuthToTab(tabId: number): Promise<void> {
   }
 }
 
-async function getValidatedStorage(): Promise<{ token: string; email: string } | null> {
-  const storage = await getStorage();
-  if (!storage.token) return null;
-
-  const validated = await persistValidatedSession(
-    storage.token,
-    storage.email || '',
-  );
-  if (!validated) {
-    await chrome.storage.local.remove(['token', 'email']);
-  }
-  return validated;
-}
-
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === 'LI_FACILITATOR_AUTH' || message.type === 'SYNC_AUTH_FROM_WEB') {
     (async () => {
       if (!message.token) {
-        await chrome.storage.local.remove(['token', 'email']);
+        await clearAuthStorage();
         sendResponse({ success: true });
         return;
       }
 
-      const validated = await persistValidatedSession(
+      const validated = await persistAuthSession(
         message.token,
         message.email || '',
       );
       if (!validated) {
-        await chrome.storage.local.remove(['token', 'email']);
+        await clearAuthStorage();
         sendResponse({ success: false });
         return;
       }
 
+      await syncAuthToAllWebTabs(validated.token, validated.email);
       sendResponse({ success: true, ...validated });
     })();
     return true;
@@ -171,7 +200,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === 'LI_FACILITATOR_SIGNOUT') {
     (async () => {
       await clearWebAuthFromOpenTabs();
-      await chrome.storage.local.remove(['token', 'email', 'lastApplicationId']);
+      await clearAuthStorage();
       sendResponse({ success: true });
     })();
     return true;
@@ -183,18 +212,33 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     message.type === 'REQUEST_AUTH_FROM_EXTENSION'
   ) {
     (async () => {
-      const validated = await resolveAuthSession({
-        preferWebTabs:
-          message.type === 'REFRESH_AUTH_TOKEN' && Boolean(message.forceRefresh),
-      });
-      sendResponse(validated || {});
+      try {
+        const storage = await getStorage();
+        if (storage.signedOut) {
+          sendResponse({});
+          return;
+        }
+
+        if (message.type === 'REFRESH_AUTH_TOKEN' && message.forceRefresh) {
+          const fromActiveTab = await syncAuthFromActiveWebTab();
+          if (fromActiveTab) {
+            sendResponse(fromActiveTab);
+            return;
+          }
+        }
+
+        const validated = await resolveAuthSession();
+        sendResponse(validated || {});
+      } catch {
+        sendResponse({});
+      }
     })();
     return true;
   }
 
   if (message.type === 'OPEN_WEB_APP') {
     (async () => {
-      const validated = await resolveAuthSession({ preferWebTabs: true });
+      const validated = await resolveAuthSession();
       if (!validated?.token) {
         sendResponse({ success: false, reason: 'not_authenticated' });
         return;
@@ -229,7 +273,33 @@ chrome.alarms.create('checkAuth', { periodInMinutes: 5 });
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name !== 'checkAuth') return;
-  await resolveAuthSession({ preferWebTabs: true });
+
+  const storage = await getStorage();
+  if (storage.signedOut) return;
+
+  await resolveAuthSession();
+});
+
+chrome.runtime.onInstalled.addListener(async () => {
+  try {
+    await resolveAuthSession();
+  } catch {
+    // Extension context not ready yet.
+  }
+});
+
+chrome.tabs.onActivated.addListener(async ({ tabId }) => {
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    if (!isAppWebUrl(tab.url)) return;
+
+    const validated = await syncAuthFromActiveWebTab();
+    if (validated) {
+      await syncAuthToAllWebTabs(validated.token, validated.email);
+    }
+  } catch {
+    // Tab may not be accessible.
+  }
 });
 
 async function toggleSidebarOnTab(tabId: number): Promise<void> {

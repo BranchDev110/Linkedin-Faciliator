@@ -255,6 +255,13 @@
   margin-left: auto;
 }
 
+.applications-generate-status {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
 .application-list-dates {
   display: flex;
   flex-wrap: wrap;

@@ -23,9 +23,10 @@ export class GenerateResumeDto {
   @MinLength(1)
   applicationId!: string;
 
+  @IsOptional()
   @IsString()
   @MinLength(1)
-  profileId!: string;
+  profileId?: string;
 
   @IsObject()
   skills!: ApplicationSkills;
@@ -36,20 +37,9 @@ export class GenerateResumeDto {
   companyBullets!: CompanyBulletsDto[];
 }
 
-export interface Resume {
-  id: string;
-  userId: string;
-  applicationId: string;
-  profileId: string;
-  companyName: string;
-  jobTitle: string;
-  content: string;
-  outputFormat?: 'text' | 'docx';
-  summary?: string;
-  skillsSection?: string;
-  filePath?: string;
-  fileName?: string;
-  fileUrl?: string;
-  createdAt: string;
-  applicationAiCostUsd?: number;
+export interface GenerateResumeResponse {
+  filePath: string;
+  fileName: string;
+  fileUrl: string;
+  applicationAiCostUsd: number;
 }

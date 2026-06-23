@@ -13,9 +13,10 @@ import { ApplicationSkills } from '../../applications/dto/application.dto';
 import { OpenAiUsageRecord } from '../../openai/openai-usage.types';
 
 export class GenerateResumeBulletsDto {
+  @IsOptional()
   @IsString()
   @MinLength(1)
-  profileId!: string;
+  profileId?: string;
 
   @IsString()
   @MinLength(1)
@@ -58,9 +59,10 @@ export class GenerateAllResumeBulletsCompanyDto {
 }
 
 export class GenerateAllResumeBulletsDto {
+  @IsOptional()
   @IsString()
   @MinLength(1)
-  profileId!: string;
+  profileId?: string;
 
   @IsObject()
   skills!: ApplicationSkills;

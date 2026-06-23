@@ -1,51 +1,59 @@
 import { useEffect, useState } from 'react';
 import {
-  apiRequest,
   downloadAuthenticatedFile,
   fetchAuthenticatedFile,
+  fileNameFromDownloadUrl,
+  filePathFromDownloadUrl,
 } from '../lib/api';
-import { Resume } from '../types';
 import './ResumeViewerModal.css';
 
 interface ResumeViewerModalProps {
-  resumeId: string;
+  resumeUrl: string;
+  title?: string;
   token: string;
   onClose: () => void;
 }
 
 export default function ResumeViewerModal({
-  resumeId,
+  resumeUrl,
+  title = 'Resume',
   token,
   onClose,
 }: ResumeViewerModalProps) {
-  const [resume, setResume] = useState<Resume | null>(null);
   const [html, setHtml] = useState<string | null>(null);
+  const [textContent, setTextContent] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const filePath = filePathFromDownloadUrl(resumeUrl);
+  const fileName = fileNameFromDownloadUrl(resumeUrl);
+  const isDocx = fileName.toLowerCase().endsWith('.docx');
 
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
+      if (!filePath) {
+        setError('Resume file URL is invalid.');
+        setLoading(false);
+        return;
+      }
+
       setLoading(true);
       setError('');
       setHtml(null);
-      setResume(null);
+      setTextContent('');
 
       try {
-        const data = await apiRequest<Resume>(`/resumes/${resumeId}`, { token });
+        const blob = await fetchAuthenticatedFile(filePath, token);
         if (cancelled) return;
 
-        setResume(data);
-
-        if (data.outputFormat === 'docx' && data.filePath) {
-          const blob = await fetchAuthenticatedFile(data.filePath, token);
-          if (cancelled) return;
-
+        if (isDocx) {
           const mammoth = await import('mammoth');
           const arrayBuffer = await blob.arrayBuffer();
           const result = await mammoth.convertToHtml({ arrayBuffer });
           setHtml(result.value);
+        } else {
+          setTextContent(await blob.text());
         }
       } catch (err) {
         if (!cancelled) {
@@ -63,11 +71,7 @@ export default function ResumeViewerModal({
     return () => {
       cancelled = true;
     };
-  }, [resumeId, token]);
-
-  const title = resume
-    ? `${resume.jobTitle} at ${resume.companyName}`
-    : 'Resume';
+  }, [filePath, isDocx, token]);
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -78,21 +82,15 @@ export default function ResumeViewerModal({
         <div className="resume-viewer-header">
           <div>
             <h2>{title}</h2>
-            {resume?.fileName ? (
-              <p className="resume-viewer-subtitle">{resume.fileName}</p>
-            ) : null}
+            <p className="resume-viewer-subtitle">{fileName}</p>
           </div>
           <div className="resume-viewer-actions">
-            {resume?.filePath ? (
+            {filePath ? (
               <button
                 type="button"
                 className="btn btn-secondary btn-sm"
                 onClick={() =>
-                  downloadAuthenticatedFile(
-                    resume.filePath!,
-                    token,
-                    resume.fileName || 'resume',
-                  )
+                  downloadAuthenticatedFile(filePath, token, fileName)
                 }
               >
                 Download
@@ -114,11 +112,11 @@ export default function ResumeViewerModal({
           />
         ) : null}
 
-        {!loading && !error && !html && resume?.content ? (
-          <pre className="resume-viewer-text">{resume.content}</pre>
+        {!loading && !error && textContent ? (
+          <pre className="resume-viewer-text">{textContent}</pre>
         ) : null}
 
-        {!loading && !error && !html && !resume?.content ? (
+        {!loading && !error && !html && !textContent ? (
           <p className="resume-viewer-empty">No resume content available.</p>
         ) : null}
       </div>

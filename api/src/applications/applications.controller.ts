@@ -8,14 +8,16 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { AuthUser, JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { AuthUser } from '../auth/auth-user.types';
+import { ApprovedGuard } from '../auth/approved.guard';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { ApplicationsService } from './applications.service';
 import { CreateApplicationDto, MarkApplicationsAppliedDto, UpdateApplicationDto } from './dto/application.dto';
 import { ExtractApplicationSkillsDto } from './dto/extract-skills.dto';
 
 @Controller('applications')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, ApprovedGuard)
 export class ApplicationsController {
   constructor(private applicationsService: ApplicationsService) {}
 
@@ -29,13 +31,7 @@ export class ApplicationsController {
     @CurrentUser() user: AuthUser,
     @Body() dto: ExtractApplicationSkillsDto,
   ) {
-    return this.applicationsService.extractSkills(
-      user.uid,
-      dto.jobDescription,
-      dto.companyName || '',
-      dto.applicationId,
-      dto.linkedInJobId,
-    );
+    return this.applicationsService.extractSkills(user.uid, dto);
   }
 
   @Get('skills')
@@ -51,17 +47,27 @@ export class ApplicationsController {
   async lookup(
     @CurrentUser() user: AuthUser,
     @Query('linkedInJobId') linkedInJobId: string,
+    @Query('jobId') jobId: string,
     @Query('profileId') profileId: string,
   ) {
-    if (!linkedInJobId?.trim() || !profileId?.trim()) {
-      return null;
+    if (!jobId?.trim() && !linkedInJobId?.trim()) {
+      return { found: false, application: null };
     }
 
-    return this.applicationsService.findByLinkedInJobAndProfile(
+    const application = await this.applicationsService.findByJobAndProfile(
       user.uid,
-      linkedInJobId,
       profileId,
+      {
+        jobId,
+        linkedInJobId,
+      },
     );
+
+    if (!application) {
+      return { found: false, application: null };
+    }
+
+    return { found: true, application };
   }
 
   @Get(':id')

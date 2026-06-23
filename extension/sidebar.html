@@ -19,6 +19,14 @@
       </div>
     </header>
 
+    <div id="extension-stale-section" class="panel hidden">
+      <div class="auth-hero">
+        <h2>Extension updated</h2>
+        <p>Refresh this LinkedIn page to reconnect the sidebar and sync your sign-in with the dashboard.</p>
+      </div>
+      <button id="btn-reload-sidebar" type="button" class="btn btn-primary">Reload sidebar</button>
+    </div>
+
     <div id="auth-section" class="panel hidden">
       <div class="auth-hero">
         <h2>Apply smarter</h2>
@@ -39,16 +47,9 @@
         <button id="btn-signout" class="btn-ghost">Sign out</button>
       </div>
 
-      <div class="field-group">
-        <div class="field-label-row">
-          <label class="field-label" for="profile-select">Profile</label>
-          <button id="btn-refresh-profiles" type="button" class="btn-ghost btn-refresh">Refresh</button>
-        </div>
-        <select id="profile-select" class="field-select">
-          <option value="">Select a profile...</option>
-        </select>
-        <div id="profile-application-notice" class="profile-application-notice hidden" role="status"></div>
-        <a id="dashboard-link" class="field-hint" href="#" target="_blank">Manage profiles in dashboard →</a>
+      <div class="field-group profile-status-group">
+        <p id="profile-summary" class="field-hint">Loading profile...</p>
+        <div id="profile-setup-warnings" class="profile-setup-warnings hidden" role="status"></div>
       </div>
 
       <div id="no-job" class="notice hidden">
@@ -73,6 +74,8 @@
           <label class="field-label" for="jd-text">Job Description</label>
           <button id="btn-refresh-jd" type="button" class="btn-ghost btn-refresh">Refresh JD</button>
         </div>
+        <div id="job-saved-notice" class="job-saved-notice hidden" role="status"></div>
+        <div id="job-application-notice" class="job-application-notice hidden" role="status"></div>
         <div class="jd-editor">
           <div id="jd-highlight" class="jd-highlight" aria-hidden="true"></div>
           <textarea

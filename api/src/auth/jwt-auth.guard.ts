@@ -1,17 +1,18 @@
 import {
   CanActivate,
   ExecutionContext,
+  ForbiddenException,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-
-export interface AuthUser {
-  uid: string;
-  email: string;
-  name?: string;
-  emailVerified: boolean;
-}
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
+import {
+  User,
+  UserDocument,
+} from '../database/schemas/user.schema';
+import { AuthUser } from './auth-user.types';
 
 interface JwtPayload {
   sub: string;
@@ -21,7 +22,10 @@ interface JwtPayload {
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
-  constructor(private jwtService: JwtService) {}
+  constructor(
+    private jwtService: JwtService,
+    @InjectModel(User.name) private userModel: Model<UserDocument>,
+  ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
@@ -29,15 +33,17 @@ export class JwtAuthGuard implements CanActivate {
 
     try {
       const payload = await this.jwtService.verifyAsync<JwtPayload>(token);
+      const user = await this.userModel.findById(payload.sub).exec();
+      if (!user) {
+        throw new UnauthorizedException('Invalid or expired token');
+      }
 
-      request.user = {
-        uid: payload.sub,
-        email: payload.email,
-        name: payload.name,
-        emailVerified: true,
-      } satisfies AuthUser;
+      request.user = this.toAuthUser(user);
       return true;
-    } catch {
+    } catch (error) {
+      if (error instanceof UnauthorizedException) {
+        throw error;
+      }
       throw new UnauthorizedException('Invalid or expired token');
     }
   }
@@ -53,5 +59,16 @@ export class JwtAuthGuard implements CanActivate {
     }
 
     return token;
+  }
+
+  toAuthUser(user: UserDocument): AuthUser {
+    return {
+      uid: user._id.toString(),
+      email: user.email,
+      name: user.name,
+      emailVerified: user.emailVerified,
+      role: user.role || 'user',
+      status: user.status || 'approved',
+    };
   }
 }

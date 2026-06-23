@@ -2,50 +2,52 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import StatCard from '../components/StatCard';
 import ApplicationChart from '../components/ApplicationChart';
 import PricingChart from '../components/PricingChart';
-import { useAuth } from '../context/AuthContext';
+import { useAuthScope } from '../hooks/useAuthScope';
 import { computeDashboardStats } from '../lib/dashboard-stats';
 import { apiRequest } from '../lib/api';
 import { formatUsd } from '../lib/format-cost';
-import { Application, Profile } from '../types';
+import { Application } from '../types';
 import './DashboardPage.css';
 
 export default function DashboardPage() {
-  const { token } = useAuth();
-  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const { userId, token } = useAuthScope();
   const [applications, setApplications] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
+  useEffect(() => {
+    setApplications([]);
+    setError('');
+  }, [userId]);
+
   const loadDashboardData = useCallback(async () => {
-    if (!token) return;
+    if (!token || !userId) {
+      setApplications([]);
+      setLoading(false);
+      return;
+    }
 
     setLoading(true);
     setError('');
 
     try {
-      const [profilesData, applicationsData] = await Promise.all([
-        apiRequest<Profile[]>('/profiles', { token }),
-        apiRequest<Application[]>('/applications', { token }),
-      ]);
-
-      setProfiles(profilesData);
+      const applicationsData = await apiRequest<Application[]>('/applications', { token });
       setApplications(applicationsData);
     } catch (err) {
-      setProfiles([]);
       setApplications([]);
       setError(err instanceof Error ? err.message : 'Failed to load dashboard data');
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, userId]);
 
   useEffect(() => {
     void loadDashboardData();
   }, [loadDashboardData]);
 
   const stats = useMemo(
-    () => computeDashboardStats(profiles, applications),
-    [profiles, applications],
+    () => computeDashboardStats([], applications),
+    [applications],
   );
 
   return (
@@ -53,7 +55,7 @@ export default function DashboardPage() {
       <div className="page-header">
         <div>
           <h1>Dashboard</h1>
-          <p>Track application activity and AI spend across your profiles</p>
+          <p>Track application activity and AI spend</p>
         </div>
         <button
           type="button"
@@ -77,13 +79,7 @@ export default function DashboardPage() {
         <>
           <section className="dashboard-section">
             <h2 className="section-title">Overview</h2>
-            <div className="dashboard-stats-grid overview-grid overview-grid-4">
-              <StatCard
-                label="Profiles"
-                value={stats.profileCount}
-                sublabel="Active profiles"
-                variant="primary"
-              />
+            <div className="dashboard-stats-grid overview-grid overview-grid-3">
               <StatCard
                 label="Total Recorded"
                 value={stats.totalRecorded}
@@ -121,25 +117,21 @@ export default function DashboardPage() {
               <ApplicationChart
                 title="Last 7 Days"
                 period="week"
-                profiles={profiles}
                 applications={applications}
               />
               <ApplicationChart
                 title="Last 2 Weeks"
                 period="twoWeeks"
-                profiles={profiles}
                 applications={applications}
               />
               <ApplicationChart
                 title="Last Month"
                 period="month"
-                profiles={profiles}
                 applications={applications}
               />
               <ApplicationChart
                 title="Last Quarter"
                 period="quarter"
-                profiles={profiles}
                 applications={applications}
               />
             </div>
@@ -155,25 +147,21 @@ export default function DashboardPage() {
               <PricingChart
                 title="Last 7 Days"
                 period="week"
-                profiles={profiles}
                 applications={applications}
               />
               <PricingChart
                 title="Last 2 Weeks"
                 period="twoWeeks"
-                profiles={profiles}
                 applications={applications}
               />
               <PricingChart
                 title="Last Month"
                 period="month"
-                profiles={profiles}
                 applications={applications}
               />
               <PricingChart
                 title="Last Quarter"
                 period="quarter"
-                profiles={profiles}
                 applications={applications}
               />
             </div>

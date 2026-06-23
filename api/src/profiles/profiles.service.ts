@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -21,6 +22,12 @@ import {
   serializeCompanies,
 } from './profile-normalizer';
 
+export interface ProfileDefaults {
+  profileName?: string;
+  email?: string;
+  name?: string;
+}
+
 @Injectable()
 export class ProfilesService {
   constructor(
@@ -29,15 +36,45 @@ export class ProfilesService {
     private fileStorageService: FileStorageService,
   ) {}
 
-  async findAllByUser(userId: string): Promise<Profile[]> {
-    const docs = await this.profileModel.find({ userId }).exec();
-    const profiles = docs.map((doc) =>
-      normalizeProfile(doc._id.toString(), doc.toObject() as unknown as Record<string, unknown>),
-    );
+  async findByUser(userId: string): Promise<Profile | null> {
+    const doc = await this.profileModel.findOne({ userId }).exec();
+    if (!doc) {
+      return null;
+    }
 
-    return profiles.sort((a, b) =>
-      String(a.profileName || '').localeCompare(String(b.profileName || '')),
+    return normalizeProfile(
+      doc._id.toString(),
+      doc.toObject() as unknown as Record<string, unknown>,
     );
+  }
+
+  async getOrCreateForUser(
+    userId: string,
+    defaults: ProfileDefaults = {},
+  ): Promise<Profile> {
+    const existing = await this.findByUser(userId);
+    if (existing) {
+      return existing;
+    }
+
+    const profileName =
+      defaults.profileName?.trim() ||
+      defaults.name?.trim() ||
+      defaults.email?.split('@')[0]?.trim() ||
+      'My Profile';
+    const nameParts = defaults.name?.trim().split(/\s+/).filter(Boolean) || [];
+
+    return this.create(userId, {
+      profileName,
+      email: defaults.email || '',
+      firstName: nameParts[0] || '',
+      lastName: nameParts.slice(1).join(' '),
+    });
+  }
+
+  async findAllByUser(userId: string): Promise<Profile[]> {
+    const profile = await this.getOrCreateForUser(userId);
+    return [profile];
   }
 
   async findOne(userId: string, profileId: string): Promise<Profile> {
@@ -58,6 +95,11 @@ export class ProfilesService {
   }
 
   async create(userId: string, dto: CreateProfileDto): Promise<Profile> {
+    const existing = await this.findByUser(userId);
+    if (existing) {
+      throw new ConflictException('You already have a profile. Edit it instead.');
+    }
+
     const doc = await this.profileModel.create({
       userId,
       profileName: dto.profileName,
@@ -124,10 +166,8 @@ export class ProfilesService {
     return this.findOne(userId, profileId);
   }
 
-  async remove(userId: string, profileId: string) {
-    await this.findOne(userId, profileId);
-    await this.profileModel.findByIdAndDelete(profileId).exec();
-    return { deleted: true };
+  async remove(_userId: string, _profileId: string) {
+    throw new BadRequestException('Your profile cannot be deleted.');
   }
 
   async uploadResumeTemplate(

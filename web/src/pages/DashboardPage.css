@@ -26,6 +26,13 @@
   flex-shrink: 0;
 }
 
+.dashboard-admin-filters {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
 .dashboard-loading,
 .dashboard-error {
   padding: 14px 16px;

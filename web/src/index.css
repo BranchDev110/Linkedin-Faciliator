@@ -211,6 +211,16 @@ select {
   color: var(--color-info);
 }
 
+.badge-warning {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.badge-neutral {
+  background: var(--color-border-subtle);
+  color: var(--color-text-secondary);
+}
+
 .tag {
   display: inline-block;
   padding: 4px 10px;

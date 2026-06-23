@@ -4,8 +4,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { User, UserSchema } from './schemas/user.schema';
 import { Profile, ProfileSchema } from './schemas/profile.schema';
 import { Application, ApplicationSchema } from './schemas/application.schema';
-import { Resume, ResumeSchema } from './schemas/resume.schema';
-import { JobSkills, JobSkillsSchema } from './schemas/job-skills.schema';
+import { Job, JobSchema } from './schemas/job.schema';
 
 @Module({
   imports: [
@@ -22,8 +21,7 @@ import { JobSkills, JobSkillsSchema } from './schemas/job-skills.schema';
       { name: User.name, schema: UserSchema },
       { name: Profile.name, schema: ProfileSchema },
       { name: Application.name, schema: ApplicationSchema },
-      { name: Resume.name, schema: ResumeSchema },
-      { name: JobSkills.name, schema: JobSkillsSchema },
+      { name: Job.name, schema: JobSchema },
     ]),
   ],
   exports: [MongooseModule],

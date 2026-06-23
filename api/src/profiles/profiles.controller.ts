@@ -8,16 +8,52 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
-import { AuthUser, JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { AuthUser } from '../auth/auth-user.types';
+import { ApprovedGuard } from '../auth/approved.guard';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { ProfilesService } from './profiles.service';
 import { CreateProfileDto, UpdateProfileDto } from './dto/profile.dto';
 import { UploadResumeTemplateDto } from './dto/upload-resume-template.dto';
 
 @Controller('profiles')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, ApprovedGuard)
 export class ProfilesController {
   constructor(private profilesService: ProfilesService) {}
+
+  @Get('me')
+  async getMe(@CurrentUser() user: AuthUser) {
+    return this.profilesService.getOrCreateForUser(user.uid, {
+      email: user.email,
+      name: user.name,
+    });
+  }
+
+  @Patch('me')
+  async updateMe(@CurrentUser() user: AuthUser, @Body() dto: UpdateProfileDto) {
+    const profile = await this.profilesService.getOrCreateForUser(user.uid, {
+      email: user.email,
+      name: user.name,
+    });
+    return this.profilesService.update(user.uid, profile.id, dto);
+  }
+
+  @Post('me/resume-template')
+  async uploadMyResumeTemplate(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: UploadResumeTemplateDto,
+  ) {
+    const profile = await this.profilesService.getOrCreateForUser(user.uid, {
+      email: user.email,
+      name: user.name,
+    });
+    return this.profilesService.uploadResumeTemplate(user.uid, profile.id, {
+      format: dto.format,
+      template: dto.template,
+      templateDocxBase64: dto.templateDocxBase64,
+      fileName: dto.fileName,
+    });
+  }
 
   @Get()
   async list(@CurrentUser() user: AuthUser) {

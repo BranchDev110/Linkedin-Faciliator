@@ -1,8 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useAuth } from '../context/AuthContext';
+import { useAuthScope } from '../hooks/useAuthScope';
 import ResumeViewerModal from '../components/ResumeViewerModal';
+import DisabledButtonWithTooltip from '../components/DisabledButtonWithTooltip';
 import { useToast } from '../components/Toast';
 import { exportSelectedApplications } from '../lib/application-export';
+import {
+  applicationHasResume,
+  applicationCanMarkApplied,
+  applicationIsApplied,
+} from '../lib/application-lookup';
+import {
+  applicationHasExtractedSkills,
+  generateResumeFromApplication,
+  getGenerateResumeDisabledReason,
+  loadUserProfile,
+} from '../lib/job-resume';
 import {
   ApplicationDateField,
   matchesApplicationDateFilter,
@@ -21,20 +33,14 @@ import {
   jobSiteApplyModeLabel,
 } from '../lib/real-jd-site';
 import { formatCostBreakdown, formatUsd } from '../lib/format-cost';
-import { Application, Profile, Resume } from '../types';
+import {
+  applicationStatusClass,
+  applicationStatusLabel,
+  isAppliedStatus,
+  normalizeApplicationStatus,
+} from '../lib/application-status';
+import { Application, Profile } from '../types';
 import './ApplicationsPage.css';
-
-function normalizeStatus(status: Application['status'] | string): Application['status'] {
-  return status === 'applied' ? 'applied' : 'recorded';
-}
-
-function statusLabel(status: Application['status']): string {
-  return normalizeStatus(status) === 'applied' ? 'Applied' : 'Recorded';
-}
-
-function statusClass(status: Application['status']): string {
-  return normalizeStatus(status) === 'applied' ? 'badge-success' : 'badge-info';
-}
 
 function isMultiSelectEvent(event: React.MouseEvent): boolean {
   return event.ctrlKey || event.metaKey;
@@ -53,7 +59,7 @@ function formatApplicationDate(value?: string): string {
 
 function getAppliedDate(app: Application): string | undefined {
   if (app.appliedAt) return app.appliedAt;
-  if (normalizeStatus(app.status) === 'applied') return app.updatedAt;
+  if (isAppliedStatus(app.status)) return app.updatedAt;
   return undefined;
 }
 
@@ -126,12 +132,12 @@ function ApplicationCard({
   selected: boolean;
   onSelect: (index: number, event: React.MouseEvent) => void;
   onToggleExpand: () => void;
-  onViewResume: (resumeId: string) => void;
+  onViewResume: (resumeUrl: string, title: string) => void;
 }) {
   const skills = app.skills;
   const breakdown = formatCostBreakdown(app.aiCostBreakdown);
-  const status = normalizeStatus(app.status);
-  const linkedInUrl = app.linkedInJobUrl || app.jobUrl || '';
+  const status = normalizeApplicationStatus(app.status);
+  const linkedInUrl = app.linkedInJobUrl || '';
   const realJobUrl = app.realJobUrl || '';
   const realJdSite = extractRealJdSite(realJobUrl);
   const applyMode = classifyJobSiteApplyMode(realJobUrl);
@@ -181,7 +187,7 @@ function ApplicationCard({
         </div>
         <div className="application-badges">
           <span className="badge badge-cost">{formatUsd(app.aiCostUsd)}</span>
-          <span className={`badge ${statusClass(status)}`}>{statusLabel(status)}</span>
+          <span className={`badge ${applicationStatusClass(status)}`}>{applicationStatusLabel(status)}</span>
           <button
             type="button"
             className={`expand-chevron${expanded ? ' open' : ''}`}
@@ -209,7 +215,7 @@ function ApplicationCard({
             </div>
             <div className="detail-item">
               <span className="detail-label">Status</span>
-              <span className={`badge ${statusClass(status)}`}>{statusLabel(status)}</span>
+              <span className={`badge ${applicationStatusClass(status)}`}>{applicationStatusLabel(status)}</span>
             </div>
             <div className="detail-item">
               <span className="detail-label">Apply mode</span>
@@ -247,13 +253,15 @@ function ApplicationCard({
                 <span>{new Date(app.updatedAt).toLocaleString()}</span>
               </div>
             ) : null}
-            {app.resumeId ? (
+            {app.resumeUrl ? (
               <div className="detail-item detail-item-wide">
                 <span className="detail-label">Resume</span>
                 <button
                   type="button"
                   className="application-resume-link"
-                  onClick={() => onViewResume(app.resumeId!)}
+                  onClick={() =>
+                    onViewResume(app.resumeUrl!, `${app.jobTitle} at ${app.companyName}`)
+                  }
                 >
                   View generated resume
                 </button>
@@ -297,11 +305,15 @@ function ApplicationCard({
 }
 
 export default function ApplicationsPage() {
-  const { token } = useAuth();
+  const { userId, token } = useAuthScope();
   const { showToast } = useToast();
   const [applications, setApplications] = useState<Application[]>([]);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [profileLoading, setProfileLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [generateMessage, setGenerateMessage] = useState('');
   const [markingApplied, setMarkingApplied] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'recorded' | 'applied'>('all');
@@ -312,11 +324,27 @@ export default function ApplicationsPage() {
   const [sortField, setSortField] = useState<ApplicationSortField>('recordedAt');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [viewingResumeId, setViewingResumeId] = useState<string | null>(null);
+  const [viewingResume, setViewingResume] = useState<{
+    url: string;
+    title: string;
+  } | null>(null);
   const selectionAnchorRef = useRef<number | null>(null);
 
+  useEffect(() => {
+    setApplications([]);
+    setProfile(null);
+    setExpanded(null);
+    setSelectedIds(new Set());
+    setViewingResume(null);
+    setProfileLoading(true);
+  }, [userId]);
+
   const loadApplications = useCallback(async () => {
-    if (!token) return;
+    if (!token || !userId) {
+      setApplications([]);
+      setLoading(false);
+      return;
+    }
 
     setLoading(true);
     try {
@@ -327,17 +355,38 @@ export default function ApplicationsPage() {
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, userId]);
 
   useEffect(() => {
     void loadApplications();
   }, [loadApplications]);
 
+  const loadProfile = useCallback(async () => {
+    if (!token || !userId) {
+      setProfile(null);
+      setProfileLoading(false);
+      return;
+    }
+
+    setProfileLoading(true);
+    try {
+      setProfile(await loadUserProfile(token));
+    } catch {
+      setProfile(null);
+    } finally {
+      setProfileLoading(false);
+    }
+  }, [token, userId]);
+
+  useEffect(() => {
+    void loadProfile();
+  }, [loadProfile]);
+
   const filtered = useMemo(() => {
     return applications.filter((app) => {
-      const status = normalizeStatus(app.status);
-      if (filter === 'applied' && status !== 'applied') return false;
-      if (filter === 'recorded' && status !== 'recorded') return false;
+      const status = normalizeApplicationStatus(app.status);
+      if (filter === 'applied' && !isAppliedStatus(status)) return false;
+      if (filter === 'recorded' && isAppliedStatus(status)) return false;
 
       const applyMode = classifyJobSiteApplyMode(app.realJobUrl);
       if (siteFilter !== 'all' && applyMode !== siteFilter) return false;
@@ -380,9 +429,52 @@ export default function ApplicationsPage() {
     () => sorted.filter((app) => selectedIds.has(app.id)),
     [sorted, selectedIds],
   );
-  const selectedNotAppliedCount = selectedApps.filter(
-    (app) => normalizeStatus(app.status) !== 'applied',
+  const selectedReadyToApplyCount = selectedApps.filter((app) =>
+    applicationCanMarkApplied(app),
   ).length;
+  const selectedWithoutResumeCount = selectedApps.filter(
+    (app) => !applicationHasResume(app),
+  ).length;
+  const selectedGeneratableApp =
+    selectedApps.length === 1 &&
+    !applicationHasResume(selectedApps[0]) &&
+    applicationHasExtractedSkills(selectedApps[0]) &&
+    !applicationIsApplied(selectedApps[0])
+      ? selectedApps[0]
+      : null;
+  const exportDisabledReason =
+    selectedCount === 0
+      ? 'Select applications to export.'
+      : selectedWithoutResumeCount > 0
+        ? 'Export only works for applications with generated resumes.'
+        : '';
+  const canExportSelected = exportDisabledReason === '';
+  const markAppliedDisabledReason =
+    selectedCount === 0
+      ? 'Select applications to mark as applied.'
+      : selectedWithoutResumeCount > 0
+        ? 'Mark as applied is only available after a resume is generated.'
+        : selectedReadyToApplyCount === 0
+          ? 'All selected applications are already applied.'
+          : '';
+  const canMarkAppliedSelected = markAppliedDisabledReason === '';
+  const generateResumeDisabledReason = getGenerateResumeDisabledReason(profile, {
+    profileLoading,
+    targetLabel: 'The selected application',
+    hasSkills: selectedGeneratableApp
+      ? applicationHasExtractedSkills(selectedGeneratableApp)
+      : undefined,
+    hasResume: selectedGeneratableApp
+      ? applicationHasResume(selectedGeneratableApp)
+      : undefined,
+    isApplied: selectedGeneratableApp
+      ? applicationIsApplied(selectedGeneratableApp)
+      : undefined,
+    generating,
+  });
+  const canGenerateResume =
+    Boolean(selectedGeneratableApp) && generateResumeDisabledReason === '';
+  const showGenerateResumeButton = Boolean(selectedGeneratableApp);
 
   const handleSelect = useCallback(
     (index: number, event: React.MouseEvent) => {
@@ -444,22 +536,20 @@ export default function ApplicationsPage() {
   const handleExport = async () => {
     if (!token) return;
 
-    if (selectedCount === 0) {
-      showToast('No applications selected.', 'info');
+    if (!canExportSelected) {
+      if (exportDisabledReason) {
+        showToast(exportDisabledReason, 'info');
+      }
       return;
     }
 
     setExporting(true);
     try {
-      const [profiles, resumes] = await Promise.all([
-        apiRequest<Profile[]>('/profiles', { token }),
-        apiRequest<Resume[]>('/resumes', { token }),
-      ]);
+      const currentProfile = profile || (await loadUserProfile(token));
 
       const result = await exportSelectedApplications(
         selectedApps,
-        profiles,
-        resumes,
+        [currentProfile],
         token,
       );
 
@@ -476,21 +566,53 @@ export default function ApplicationsPage() {
     }
   };
 
-  const handleMarkSelectedApplied = async () => {
-    if (!token) return;
-
-    if (selectedCount === 0) {
-      showToast('No applications selected.', 'info');
+  const handleGenerateResume = async () => {
+    if (!token || !selectedGeneratableApp || !canGenerateResume) {
+      if (generateResumeDisabledReason) {
+        showToast(generateResumeDisabledReason, 'error');
+      }
       return;
     }
 
-    if (selectedNotAppliedCount === 0) {
-      showToast('All selected applications are already applied.', 'info');
+    setGenerating(true);
+    setGenerateMessage('');
+    try {
+      const currentProfile = profile || (await loadUserProfile(token));
+      setProfile(currentProfile);
+
+      const result = await generateResumeFromApplication(
+        selectedGeneratableApp,
+        currentProfile,
+        token,
+        setGenerateMessage,
+      );
+
+      setApplications((previous) => {
+        const others = previous.filter((app) => app.id !== result.application.id);
+        return [result.application, ...others];
+      });
+
+      showToast('Resume generated and saved to your applications.', 'success');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to generate resume', 'error');
+    } finally {
+      setGenerating(false);
+      setGenerateMessage('');
+    }
+  };
+
+  const handleMarkSelectedApplied = async () => {
+    if (!token) return;
+
+    if (!canMarkAppliedSelected) {
+      if (markAppliedDisabledReason) {
+        showToast(markAppliedDisabledReason, 'info');
+      }
       return;
     }
 
     const idsToMark = selectedApps
-      .filter((app) => normalizeStatus(app.status) !== 'applied')
+      .filter((app) => applicationCanMarkApplied(app))
       .map((app) => app.id);
 
     setMarkingApplied(true);
@@ -521,7 +643,7 @@ export default function ApplicationsPage() {
       <div className="page-header applications-page-header">
         <div>
           <h1>Applications</h1>
-          <p>Job applications recorded from the Chrome extension</p>
+          <p>Jobs where you extracted skills or generated a resume</p>
         </div>
       </div>
 
@@ -690,23 +812,49 @@ export default function ApplicationsPage() {
           <span className="cost-summary">Total AI cost: {formatUsd(totalCost)}</span>
         ) : null}
         <div className="applications-summary-actions">
-          <button
+          {showGenerateResumeButton ? (
+            <DisabledButtonWithTooltip
+              type="button"
+              className="btn btn-primary btn-sm"
+              disabled={generating || !canGenerateResume}
+              disabledReason={
+                !generating && generateResumeDisabledReason
+                  ? generateResumeDisabledReason
+                  : undefined
+              }
+              onClick={() => void handleGenerateResume()}
+            >
+              {generating ? 'Generating...' : 'Generate Resume'}
+            </DisabledButtonWithTooltip>
+          ) : null}
+          <DisabledButtonWithTooltip
             type="button"
             className="btn btn-secondary btn-sm"
-            disabled={markingApplied}
+            disabled={markingApplied || !canMarkAppliedSelected}
+            disabledReason={
+              !markingApplied && markAppliedDisabledReason
+                ? markAppliedDisabledReason
+                : undefined
+            }
             onClick={() => void handleMarkSelectedApplied()}
           >
             {markingApplied ? 'Updating...' : 'Mark as Applied'}
-          </button>
-          <button
+          </DisabledButtonWithTooltip>
+          <DisabledButtonWithTooltip
             type="button"
             className="btn btn-primary btn-sm applications-export-btn"
-            disabled={exporting}
+            disabled={exporting || !canExportSelected}
+            disabledReason={
+              !exporting && exportDisabledReason ? exportDisabledReason : undefined
+            }
             onClick={() => void handleExport()}
           >
             {exporting ? 'Exporting...' : 'Export Selected'}
-          </button>
+          </DisabledButtonWithTooltip>
         </div>
+        {generating && generateMessage ? (
+          <p className="applications-generate-status">{generateMessage}</p>
+        ) : null}
       </div>
 
       <p className="applications-selection-hint">
@@ -728,16 +876,17 @@ export default function ApplicationsPage() {
             selected={selectedIds.has(app.id)}
             onSelect={handleSelect}
             onToggleExpand={() => setExpanded(expanded === app.id ? null : app.id)}
-            onViewResume={setViewingResumeId}
+                onViewResume={(resumeUrl, title) => setViewingResume({ url: resumeUrl, title })}
           />
         ))}
       </div>
 
-      {viewingResumeId && token ? (
+      {viewingResume && token ? (
         <ResumeViewerModal
-          resumeId={viewingResumeId}
+          resumeUrl={viewingResume.url}
+          title={viewingResume.title}
           token={token}
-          onClose={() => setViewingResumeId(null)}
+          onClose={() => setViewingResume(null)}
         />
       ) : null}
     </div>

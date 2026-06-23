@@ -1,5 +1,6 @@
 const HOST_ID = 'li-facilitator-host';
 const PAGE_STYLE_ID = 'li-facilitator-page-styles';
+const HOST_FLAG = '__liFacilitatorSidebarHostLoaded';
 const SIDEBAR_WIDTH = '30vw';
 const SIDEBAR_OPEN_CLASS = 'li-facilitator-sidebar-open';
 
@@ -9,6 +10,19 @@ function isExtensionRuntimeValid(): boolean {
   } catch {
     return false;
   }
+}
+
+function shouldInitializeHost(): boolean {
+  const flag = (window as Window & { [HOST_FLAG]?: boolean })[HOST_FLAG];
+  if (!flag) return true;
+  return !isExtensionRuntimeValid();
+}
+
+function tearDownHost(): void {
+  document.getElementById(HOST_ID)?.remove();
+  document.documentElement.classList.remove(SIDEBAR_OPEN_CLASS);
+  ui = null;
+  isOpen = false;
 }
 
 function ensurePageStyles(): void {
@@ -25,13 +39,18 @@ function ensurePageStyles(): void {
   document.documentElement.appendChild(style);
 }
 
+function reloadSidebarIframe(): void {
+  if (!ui || !isExtensionRuntimeValid()) return;
+
+  const nextSrc = `${chrome.runtime.getURL('sidebar.html')}?t=${Date.now()}`;
+  ui.iframe.src = nextSrc;
+}
+
 function createHost(): {
   toggleBtn: HTMLButtonElement;
   panel: HTMLDivElement;
   iframe: HTMLIFrameElement;
 } {
-  if (ui) return ui;
-
   const host = document.createElement('div');
   host.id = HOST_ID;
   host.style.all = 'initial';
@@ -73,6 +92,10 @@ function createHost(): {
     .toggle-btn.open {
       right: calc(${SIDEBAR_WIDTH} + 10px);
       background: #334155;
+    }
+
+    .toggle-btn.stale {
+      background: #b45309;
     }
 
     .toggle-btn svg {
@@ -136,8 +159,7 @@ function createHost(): {
   shadow.appendChild(toggleBtn);
   shadow.appendChild(panel);
 
-  ui = { toggleBtn, panel, iframe };
-  return ui;
+  return { toggleBtn, panel, iframe };
 }
 
 let isOpen = false;
@@ -154,6 +176,17 @@ function setSidebarOpen(open: boolean): void {
 }
 
 function toggleSidebar(): void {
+  if (!isExtensionRuntimeValid()) {
+    ui?.toggleBtn.classList.add('stale');
+    ui?.toggleBtn.setAttribute(
+      'title',
+      'LI Facilitator was updated. Refresh this LinkedIn page to continue.',
+    );
+    return;
+  }
+
+  ui?.toggleBtn.classList.remove('stale');
+  ui?.toggleBtn.setAttribute('title', 'Toggle LI Facilitator');
   setSidebarOpen(!isOpen);
 }
 
@@ -165,8 +198,23 @@ function mountSidebarHost(): void {
   ui.toggleBtn.addEventListener('click', toggleSidebar);
 }
 
+function initializeSidebarHost(): void {
+  if (!shouldInitializeHost()) {
+    return;
+  }
+
+  tearDownHost();
+  (window as Window & { [HOST_FLAG]?: boolean })[HOST_FLAG] = true;
+  mountSidebarHost();
+}
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === 'TOGGLE_SIDEBAR') {
+    if (!isExtensionRuntimeValid()) {
+      sendResponse({ open: false, stale: true });
+      return true;
+    }
+
     mountSidebarHost();
     toggleSidebar();
     sendResponse({ open: isOpen });
@@ -174,6 +222,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message.type === 'OPEN_SIDEBAR') {
+    if (!isExtensionRuntimeValid()) {
+      sendResponse({ open: false, stale: true });
+      return true;
+    }
+
     mountSidebarHost();
     setSidebarOpen(true);
     sendResponse({ open: true });
@@ -192,4 +245,18 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 });
 
-mountSidebarHost();
+window.addEventListener('message', (event) => {
+  if (event.data?.type !== 'LI_FACILITATOR_RELOAD_SIDEBAR') {
+    return;
+  }
+
+  if (!isExtensionRuntimeValid()) {
+    ui?.toggleBtn.classList.add('stale');
+    window.location.reload();
+    return;
+  }
+
+  reloadSidebarIframe();
+});
+
+initializeSidebarHost();

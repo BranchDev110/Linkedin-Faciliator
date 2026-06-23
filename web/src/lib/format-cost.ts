@@ -28,11 +28,40 @@ export function formatCostBreakdown(breakdown?: Record<string, number>): string 
   const labels: Record<string, string> = {
     skillExtraction: 'Skills',
     resumeBullets: 'Bullets',
-    resumeContent: 'Resume',
   };
 
   return Object.entries(breakdown)
-    .filter(([, amount]) => (amount ?? 0) > 0)
+    .filter(([key, amount]) => (labels[key] ? (amount ?? 0) > 0 : false))
     .map(([key, amount]) => `${labels[key] || key}: ${formatUsd(amount)}`)
     .join(' · ');
+}
+
+export function normalizeAiCostBreakdown(
+  breakdown?: Record<string, number> | null,
+): Record<string, number> {
+  if (!breakdown) {
+    return {};
+  }
+
+  const normalized: Record<string, number> = {};
+  const skillExtraction = breakdown.skillExtraction;
+  const resumeBullets = breakdown.resumeBullets;
+
+  if (typeof skillExtraction === 'number' && skillExtraction > 0) {
+    normalized.skillExtraction = roundUsd(skillExtraction);
+  }
+  if (typeof resumeBullets === 'number' && resumeBullets > 0) {
+    normalized.resumeBullets = roundUsd(resumeBullets);
+  }
+
+  return normalized;
+}
+
+export function sumTrackedAiCostUsd(
+  breakdown?: Record<string, number> | null,
+): number {
+  const normalized = normalizeAiCostBreakdown(breakdown);
+  return roundUsd(
+    (normalized.skillExtraction ?? 0) + (normalized.resumeBullets ?? 0),
+  );
 }
