@@ -1,4 +1,5 @@
 import {
+  AiCostCategory,
   ApplicationAiCostBreakdown,
   OpenAiCompletionUsage,
   OpenAiUsageRecord,
@@ -67,12 +68,42 @@ export function formatUsd(cost: number): string {
   return `$${cost.toFixed(2)}`;
 }
 
+export function normalizeAiCostBreakdown(
+  breakdown?: ApplicationAiCostBreakdown | Record<string, number> | null,
+): ApplicationAiCostBreakdown {
+  if (!breakdown) {
+    return {};
+  }
+
+  const normalized: ApplicationAiCostBreakdown = {};
+  const skillExtraction = breakdown.skillExtraction;
+  const resumeBullets = breakdown.resumeBullets;
+
+  if (typeof skillExtraction === 'number' && skillExtraction > 0) {
+    normalized.skillExtraction = roundUsd(skillExtraction);
+  }
+  if (typeof resumeBullets === 'number' && resumeBullets > 0) {
+    normalized.resumeBullets = roundUsd(resumeBullets);
+  }
+
+  return normalized;
+}
+
+export function sumTrackedAiCostUsd(
+  breakdown?: ApplicationAiCostBreakdown | Record<string, number> | null,
+): number {
+  const normalized = normalizeAiCostBreakdown(breakdown);
+  return roundUsd(
+    (normalized.skillExtraction ?? 0) + (normalized.resumeBullets ?? 0),
+  );
+}
+
 export function mergeCostBreakdown(
   current: ApplicationAiCostBreakdown | undefined,
-  category: keyof ApplicationAiCostBreakdown,
+  category: AiCostCategory,
   costUsd: number,
 ): ApplicationAiCostBreakdown {
-  const next = { ...(current || {}) };
+  const next = normalizeAiCostBreakdown(current);
   next[category] = roundUsd((next[category] ?? 0) + costUsd);
   return next;
 }

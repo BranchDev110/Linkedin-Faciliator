@@ -47,7 +47,19 @@ async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
   const webIndexPath = resolveWebIndexPath();
-  const spaPaths = new Set(['/', '/dashboard', '/profiles', '/applications']);
+  const spaPaths = new Set([
+    '/',
+    '/login',
+    '/signup',
+    '/auth',
+    '/dashboard',
+    '/profiles',
+    '/applications',
+    '/jobs',
+    '/pending',
+    '/admin/dashboard',
+    '/admin/users',
+  ]);
 
   if (webIndexPath) {
     app.use((req: Request, res: Response, next: NextFunction) => {
@@ -60,7 +72,7 @@ async function bootstrap() {
       const wantsHtml =
         accept.includes('text/html') && !accept.includes('application/json');
 
-      if (!wantsHtml && req.path !== '/') {
+      if (!wantsHtml) {
         next();
         return;
       }
@@ -77,6 +89,7 @@ async function bootstrap() {
       { path: 'files/(.*)', method: RequestMethod.ALL },
       { path: '', method: RequestMethod.GET },
       { path: 'dashboard', method: RequestMethod.GET },
+      { path: 'pending', method: RequestMethod.GET },
       { path: 'vite.svg', method: RequestMethod.GET },
     ],
   });

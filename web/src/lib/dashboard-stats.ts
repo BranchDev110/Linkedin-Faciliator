@@ -61,37 +61,50 @@ export function getApplicationWorkflowCost(app: Application): number {
 export function computeDashboardStats(
   profiles: Profile[],
   applications: Application[],
+  userId?: string,
+  profileId?: string,
 ): DashboardStats {
+  let scopedApplications = applications;
+  let scopedProfiles = profiles;
+
+  if (userId) {
+    scopedApplications = scopedApplications.filter((app) => app.userId === userId);
+    scopedProfiles = scopedProfiles.filter((profile) => profile.userId === userId);
+  }
+  if (profileId) {
+    scopedApplications = scopedApplications.filter((app) => app.profileId === profileId);
+  }
+
   const now = new Date();
   const yesterday = new Date(now);
   yesterday.setDate(yesterday.getDate() - 1);
 
-  const todayRecorded = applications.filter((app) =>
+  const todayRecorded = scopedApplications.filter((app) =>
     isSameDay(getRecordedDate(app), now),
   ).length;
 
-  const todayApplied = applications.filter((app) => {
+  const todayApplied = scopedApplications.filter((app) => {
     const appliedDate = getAppliedDate(app);
     return appliedDate ? isSameDay(appliedDate, now) : false;
   }).length;
 
-  const yesterdayRecorded = applications.filter((app) =>
+  const yesterdayRecorded = scopedApplications.filter((app) =>
     isSameDay(getRecordedDate(app), yesterday),
   ).length;
 
-  const yesterdayApplied = applications.filter((app) => {
+  const yesterdayApplied = scopedApplications.filter((app) => {
     const appliedDate = getAppliedDate(app);
     return appliedDate ? isSameDay(appliedDate, yesterday) : false;
   }).length;
 
   const totalAiCostUsd = roundUsd(
-    applications.reduce((sum, app) => sum + getApplicationWorkflowCost(app), 0),
+    scopedApplications.reduce((sum, app) => sum + getApplicationWorkflowCost(app), 0),
   );
 
   return {
-    profileCount: profiles.length,
-    totalRecorded: applications.length,
-    totalApplied: applications.filter((app) => app.status === 'applied').length,
+    profileCount: scopedProfiles.length,
+    totalRecorded: scopedApplications.length,
+    totalApplied: scopedApplications.filter((app) => app.status === 'applied').length,
     todayRecorded,
     todayApplied,
     yesterdayRecorded,
@@ -175,10 +188,15 @@ export function buildChartData(
   applications: Application[],
   period: ChartPeriod,
   profileId?: string,
+  userId?: string,
 ): ChartDataPoint[] {
-  const scoped = profileId
-    ? applications.filter((app) => app.profileId === profileId)
-    : applications;
+  let scoped = applications;
+  if (userId) {
+    scoped = scoped.filter((app) => app.userId === userId);
+  }
+  if (profileId) {
+    scoped = scoped.filter((app) => app.profileId === profileId);
+  }
   const periodDays = { week: 7, twoWeeks: 14, month: 30, quarter: 90 }[period];
   const filtered = filterByDays(scoped, periodDays);
   const buckets = createBuckets(period);
@@ -219,10 +237,15 @@ export function buildPricingChartData(
   applications: Application[],
   period: ChartPeriod,
   profileId?: string,
+  userId?: string,
 ): PricingChartDataPoint[] {
-  const scoped = profileId
-    ? applications.filter((app) => app.profileId === profileId)
-    : applications;
+  let scoped = applications;
+  if (userId) {
+    scoped = scoped.filter((app) => app.userId === userId);
+  }
+  if (profileId) {
+    scoped = scoped.filter((app) => app.profileId === profileId);
+  }
   const periodDays = { week: 7, twoWeeks: 14, month: 30, quarter: 90 }[period];
   const filtered = filterByDays(scoped, periodDays);
   const buckets = createPricingBuckets(period);

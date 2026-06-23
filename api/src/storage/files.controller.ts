@@ -10,7 +10,8 @@ import {
 import { Response } from 'express';
 import { existsSync } from 'fs';
 import { extname } from 'path';
-import { AuthUser, JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { AuthUser } from '../auth/auth-user.types';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { FileStorageService } from './file-storage.service';
 

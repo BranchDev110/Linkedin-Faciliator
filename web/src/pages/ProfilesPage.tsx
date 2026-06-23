@@ -1,17 +1,14 @@
-import { ChangeEvent, FormEvent, useCallback, useEffect, useState } from 'react';
-import { useAuth } from '../context/AuthContext';
+import { ChangeEvent, FormEvent, forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { useAuthScope } from '../hooks/useAuthScope';
 import { useToast } from '../components/Toast';
 import { apiRequest } from '../lib/api';
+import { uploadProfileResumeTemplate } from '../lib/profile-template';
 import { CreateProfileInput, Profile, ProfileCompany } from '../types';
 import './ProfilesPage.css';
 
 function profileDisplayName(profile: Profile): string {
   const full = [profile.firstName, profile.lastName].filter(Boolean).join(' ');
   return full || profile.profileName;
-}
-
-function profileLocation(profile: Profile): string {
-  return [profile.address?.city, profile.address?.state].filter(Boolean).join(', ');
 }
 
 function ProfileCompaniesEditor({
@@ -156,30 +153,31 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
   return btoa(binary);
 }
 
-function profileHasTemplate(profile: Profile): boolean {
-  if (profile.resumeTemplateFormat === 'docx') {
-    return Boolean(profile.resumeTemplateFilePath?.trim());
-  }
-  return Boolean(profile.resumeTemplate?.trim());
-}
+export type ResumeTemplateSectionHandle = {
+  savePendingTemplate: () => Promise<Profile | null>;
+};
 
-function ResumeTemplateSection({
-  profileId,
-  token,
-  initialTemplate,
-  initialFileName,
-  initialFormat,
-  companies,
-  onUploaded,
-}: {
-  profileId: string;
-  token: string;
-  initialTemplate?: string;
-  initialFileName?: string;
-  initialFormat?: Profile['resumeTemplateFormat'];
-  companies: ProfileCompany[];
-  onUploaded: (profile: Profile) => void;
-}) {
+const ResumeTemplateSection = forwardRef<
+  ResumeTemplateSectionHandle,
+  {
+    token: string;
+    initialTemplate?: string;
+    initialFileName?: string;
+    initialFormat?: Profile['resumeTemplateFormat'];
+    companies: ProfileCompany[];
+    onUploaded: (profile: Profile) => void;
+  }
+>(function ResumeTemplateSection(
+  {
+    token,
+    initialTemplate,
+    initialFileName,
+    initialFormat,
+    companies,
+    onUploaded,
+  },
+  ref,
+) {
   const { showToast } = useToast();
   const [template, setTemplate] = useState(initialTemplate || '');
   const [fileName, setFileName] = useState(initialFileName || '');
@@ -196,7 +194,7 @@ function ResumeTemplateSection({
     setTemplateFormat(initialFormat || '');
     setTemplateDocxBase64('');
     setPreviewText('');
-  }, [initialTemplate, initialFileName, initialFormat, profileId]);
+  }, [initialTemplate, initialFileName, initialFormat]);
 
   const handleFile = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -227,29 +225,64 @@ function ResumeTemplateSection({
     }
   };
 
-  const uploadTemplate = async () => {
+  const savePendingTemplate = useCallback(async (): Promise<Profile | null> => {
     const isDocx = templateFormat === 'docx';
-    if (isDocx && !templateDocxBase64) {
-      showToast('Upload a .docx template before saving.', 'error');
-      return;
-    }
-    if (!isDocx && !template.trim()) {
-      showToast('Add a resume template before saving.', 'error');
-      return;
+
+    if (isDocx) {
+      if (!templateDocxBase64) {
+        return null;
+      }
+    } else if (!template.trim()) {
+      return null;
+    } else if (
+      template.trim() === (initialTemplate || '').trim() &&
+      initialFormat === 'text'
+    ) {
+      return null;
     }
 
+    const updated = await uploadProfileResumeTemplate(
+      token,
+      isDocx
+        ? { format: 'docx', templateDocxBase64, fileName }
+        : { format: 'text', template, fileName },
+    );
+    onUploaded(updated);
+    return updated;
+  }, [
+    fileName,
+    initialFormat,
+    initialTemplate,
+    onUploaded,
+    template,
+    templateDocxBase64,
+    templateFormat,
+    token,
+  ]);
+
+  useImperativeHandle(ref, () => ({ savePendingTemplate }), [savePendingTemplate]);
+
+  const uploadTemplate = async () => {
     setUploading(true);
     try {
-      const body = isDocx
-        ? { format: 'docx', templateDocxBase64, fileName }
-        : { format: 'text', template, fileName };
-
-      const updated = await apiRequest<Profile>(`/profiles/${profileId}/resume-template`, {
-        method: 'POST',
-        token,
-        body: JSON.stringify(body),
-      });
-      onUploaded(updated);
+      const updated = await savePendingTemplate();
+      if (!updated) {
+        const isDocx = templateFormat === 'docx';
+        if (isDocx && !templateDocxBase64 && initialFormat === 'docx') {
+          showToast('Word template is already saved.');
+          return;
+        }
+        if (isDocx && !templateDocxBase64) {
+          showToast('Upload a .docx template before saving.', 'error');
+          return;
+        }
+        if (!isDocx && !template.trim()) {
+          showToast('Add a resume template before saving.', 'error');
+          return;
+        }
+        showToast('Resume template is already up to date.');
+        return;
+      }
       showToast('Resume template saved.');
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Failed to save template', 'error');
@@ -267,7 +300,7 @@ function ResumeTemplateSection({
         Upload a Word (.docx) template to keep formatting. Use {'{{summary}}'}, {'{{skills}}'}, and
         company placeholders
         {companyPlaceholders ? ` such as ${companyPlaceholders}` : ' like {{ForeFlight}}'}.
-        Plain .txt/.md is also supported.
+        Plain .txt/.md is also supported. Saved together when you click Save Profile.
       </p>
       {fileName ? <p className="field-help">Current file: {fileName}</p> : null}
       {templateFormat === 'docx' && !templateDocxBase64 && initialFormat === 'docx' ? (
@@ -301,37 +334,68 @@ function ResumeTemplateSection({
       </button>
     </div>
   );
-}
+});
 
-function ProfileForm({
-  initial,
-  token,
-  saving,
-  onSave,
-  onCancel,
-  onTemplateUploaded,
-}: {
-  initial?: Profile;
-  token: string;
-  saving: boolean;
-  onSave: (data: CreateProfileInput) => void;
-  onCancel: () => void;
-  onTemplateUploaded?: (profile: Profile) => void;
-}) {
-  const [profileName, setProfileName] = useState(initial?.profileName || '');
-  const [firstName, setFirstName] = useState(initial?.firstName || '');
-  const [lastName, setLastName] = useState(initial?.lastName || '');
-  const [email, setEmail] = useState(initial?.email || '');
-  const [phoneNumber, setPhoneNumber] = useState(initial?.phoneNumber || '');
-  const [linkedin, setLinkedin] = useState(initial?.linkedin || '');
-  const [generalPrompt, setGeneralPrompt] = useState(initial?.generalPrompt || '');
-  const [companies, setCompanies] = useState<ProfileCompany[]>(initial?.companies || []);
-  const [city, setCity] = useState(initial?.address?.city || '');
-  const [state, setState] = useState(initial?.address?.state || '');
+export default function ProfilesPage() {
+  const { userId, token } = useAuthScope();
+  const { showToast } = useToast();
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [profileName, setProfileName] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [linkedin, setLinkedin] = useState('');
+  const [generalPrompt, setGeneralPrompt] = useState('');
+  const [companies, setCompanies] = useState<ProfileCompany[]>([]);
+  const [city, setCity] = useState('');
+  const [state, setState] = useState('');
+  const templateRef = useRef<ResumeTemplateSectionHandle>(null);
 
-  const handleSubmit = (e: FormEvent) => {
+  const applyProfileToForm = useCallback((data: Profile) => {
+    setProfileName(data.profileName || '');
+    setFirstName(data.firstName || '');
+    setLastName(data.lastName || '');
+    setEmail(data.email || '');
+    setPhoneNumber(data.phoneNumber || '');
+    setLinkedin(data.linkedin || '');
+    setGeneralPrompt(data.generalPrompt || '');
+    setCompanies(data.companies || []);
+    setCity(data.address?.city || '');
+    setState(data.address?.state || '');
+  }, []);
+
+  const loadProfile = useCallback(async () => {
+    if (!token || !userId) {
+      setProfile(null);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const data = await apiRequest<Profile>('/profiles/me', { token });
+      setProfile(data);
+      applyProfileToForm(data);
+    } catch (err) {
+      setProfile(null);
+      showToast(err instanceof Error ? err.message : 'Failed to load profile', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [applyProfileToForm, showToast, token, userId]);
+
+  useEffect(() => {
+    void loadProfile();
+  }, [loadProfile]);
+
+  const handleSave = async (e: FormEvent) => {
     e.preventDefault();
-    onSave({
+    if (!token) return;
+
+    const payload: CreateProfileInput = {
       profileName,
       firstName,
       lastName,
@@ -341,211 +405,39 @@ function ProfileForm({
       generalPrompt,
       companies,
       address: { city, state },
-    });
-  };
-
-  return (
-    <div className="modal-overlay" onClick={onCancel}>
-      <div className="modal-content modal-content-wide" onClick={(e) => e.stopPropagation()}>
-        <h2>{initial ? 'Edit Profile' : 'Create Profile'}</h2>
-        <form onSubmit={handleSubmit}>
-          <div className="form-grid">
-            <div className="form-group">
-              <label>Profile Name *</label>
-              <input
-                value={profileName}
-                onChange={(e) => setProfileName(e.target.value)}
-                placeholder="e.g. Software Engineer - Bay Area"
-                required
-              />
-            </div>
-            <div className="form-group">
-              <label>First Name</label>
-              <input value={firstName} onChange={(e) => setFirstName(e.target.value)} />
-            </div>
-            <div className="form-group">
-              <label>Last Name</label>
-              <input value={lastName} onChange={(e) => setLastName(e.target.value)} />
-            </div>
-            <div className="form-group">
-              <label>Email</label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-              />
-            </div>
-            <div className="form-group">
-              <label>Phone Number</label>
-              <input
-                value={phoneNumber}
-                onChange={(e) => setPhoneNumber(e.target.value)}
-                placeholder="+1 (555) 000-0000"
-              />
-            </div>
-            <div className="form-group">
-              <label>LinkedIn</label>
-              <input
-                value={linkedin}
-                onChange={(e) => setLinkedin(e.target.value)}
-                placeholder="https://linkedin.com/in/..."
-              />
-            </div>
-            <div className="form-group">
-              <label>City</label>
-              <input value={city} onChange={(e) => setCity(e.target.value)} placeholder="San Francisco" />
-            </div>
-            <div className="form-group">
-              <label>State</label>
-              <input value={state} onChange={(e) => setState(e.target.value)} placeholder="CA" />
-            </div>
-          </div>
-
-          <div className="form-group">
-            <label>General Resume Prompt</label>
-            <p className="field-help">
-              High-level instructions for how every resume bullet should be written (tone, structure, style).
-            </p>
-            <textarea
-              value={generalPrompt}
-              onChange={(e) => setGeneralPrompt(e.target.value)}
-              placeholder="Example: Use past tense, start with action verbs, keep bullets to one line, emphasize leadership and measurable impact..."
-              rows={4}
-            />
-          </div>
-
-          <ProfileCompaniesEditor companies={companies} onChange={setCompanies} />
-
-          {initial?.id && onTemplateUploaded ? (
-            <ResumeTemplateSection
-              profileId={initial.id}
-              token={token}
-              initialTemplate={initial.resumeTemplate}
-              initialFileName={initial.resumeTemplateFileName}
-              initialFormat={initial.resumeTemplateFormat}
-              companies={companies}
-              onUploaded={onTemplateUploaded}
-            />
-          ) : (
-            <p className="field-help">Save the profile first, then edit it to upload a resume template.</p>
-          )}
-
-          <div className="form-actions">
-            <button type="button" className="btn btn-secondary" onClick={onCancel} disabled={saving}>
-              Cancel
-            </button>
-            <button type="submit" className="btn btn-primary" disabled={saving}>
-              {saving ? 'Saving...' : initial ? 'Save Changes' : 'Create Profile'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-export default function ProfilesPage() {
-  const { token } = useAuth();
-  const { showToast } = useToast();
-  const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [showForm, setShowForm] = useState(false);
-  const [editing, setEditing] = useState<Profile | undefined>();
-  const [expanded, setExpanded] = useState<string | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
-
-  const loadProfiles = useCallback(async (options?: { notify?: boolean }) => {
-    if (!token) return;
-
-    setLoading(true);
-    try {
-      const data = await apiRequest<Profile[]>('/profiles', { token });
-      setProfiles(data);
-      if (options?.notify) {
-        showToast(
-          data.length
-            ? `Loaded ${data.length} profile${data.length === 1 ? '' : 's'}.`
-            : 'No profiles yet.',
-        );
-      }
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Failed to load profiles', 'error');
-      setProfiles([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [showToast, token]);
-
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    try {
-      await loadProfiles({ notify: true });
-    } finally {
-      setRefreshing(false);
-    }
-  };
-
-  useEffect(() => {
-    loadProfiles();
-  }, [loadProfiles]);
-
-  const handleCreate = async (data: CreateProfileInput) => {
-    setSaving(true);
-    try {
-      const created = await apiRequest<Profile>('/profiles', {
-        method: 'POST',
-        token,
-        body: JSON.stringify(data),
-      });
-      setProfiles((prev) => [created, ...prev.filter((p) => p.id !== created.id)]);
-      setShowForm(false);
-      showToast('Profile created.');
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Failed to create profile', 'error');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleUpdate = async (data: CreateProfileInput) => {
-    if (!editing) return;
+    };
 
     setSaving(true);
     try {
-      const updated = await apiRequest<Profile>(`/profiles/${editing.id}`, {
+      const updated = await apiRequest<Profile>('/profiles/me', {
         method: 'PATCH',
         token,
-        body: JSON.stringify(data),
+        body: JSON.stringify(payload),
       });
-      setProfiles((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
-      setEditing(undefined);
-      showToast('Profile updated.');
+
+      let finalProfile = updated;
+      try {
+        const templateProfile = await templateRef.current?.savePendingTemplate();
+        if (templateProfile) {
+          finalProfile = templateProfile;
+        }
+      } catch (err) {
+        showToast(
+          err instanceof Error ? err.message : 'Profile saved, but template upload failed',
+          'error',
+        );
+        setProfile(updated);
+        applyProfileToForm(updated);
+        return;
+      }
+
+      setProfile(finalProfile);
+      applyProfileToForm(finalProfile);
+      showToast('Profile saved.');
     } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Failed to update profile', 'error');
+      showToast(err instanceof Error ? err.message : 'Failed to save profile', 'error');
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handleDelete = async (id: string) => {
-    if (!confirm('Delete this profile?')) return;
-
-    try {
-      await apiRequest(`/profiles/${id}`, { method: 'DELETE', token });
-      setProfiles((prev) => prev.filter((p) => p.id !== id));
-      if (expanded === id) setExpanded(null);
-      showToast('Profile deleted.');
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Failed to delete profile', 'error');
-    }
-  };
-
-  const handleTemplateUploaded = (profile: Profile) => {
-    setProfiles((prev) => prev.map((p) => (p.id === profile.id ? profile : p)));
-    if (editing?.id === profile.id) {
-      setEditing(profile);
     }
   };
 
@@ -553,180 +445,124 @@ export default function ProfilesPage() {
     <div>
       <div className="page-header">
         <div>
-          <h1>Profiles</h1>
-          <p>Manage application profiles for tailored resume generation</p>
+          <h1>My Profile</h1>
+          <p>
+            Customize your resume settings, companies, and template for tailored resume generation
+          </p>
         </div>
-        <div className="page-header-actions">
-          <button
-            className="btn btn-secondary"
-            onClick={() => void handleRefresh()}
-            disabled={refreshing || loading}
-          >
-            {refreshing ? 'Refreshing...' : 'Refresh'}
-          </button>
-          <button className="btn btn-primary" onClick={() => setShowForm(true)}>
-            New Profile
-          </button>
-        </div>
+        <button
+          className="btn btn-secondary"
+          onClick={() => void loadProfile()}
+          disabled={loading}
+        >
+          {loading ? 'Refreshing...' : 'Refresh'}
+        </button>
       </div>
 
       {loading ? (
         <div className="card empty-state">
-          <p>Loading profiles...</p>
-        </div>
-      ) : profiles.length === 0 ? (
-        <div className="card empty-state">
-          <h3>No profiles yet</h3>
-          <p>Create a profile to configure resume generation settings.</p>
-          <button className="btn btn-primary" style={{ marginTop: 16 }} onClick={() => setShowForm(true)}>
-            Create Profile
-          </button>
+          <p>Loading profile...</p>
         </div>
       ) : (
-        <div className="profiles-list">
-          {profiles.map((profile) => (
-            <div key={profile.id} className="card profile-list-item">
-              <div
-                className="profile-list-header"
-                onClick={() => setExpanded(expanded === profile.id ? null : profile.id)}
-              >
-                <div className="profile-list-main">
-                  <div className="profile-avatar">
-                    {(profile.firstName || profile.profileName).charAt(0).toUpperCase()}
-                  </div>
-                  <div>
-                    <h3>{profile.profileName}</h3>
-                    <p className="profile-meta">
-                      {[profileDisplayName(profile), profile.email].filter(Boolean).join(' · ') ||
-                        'No contact info'}
-                    </p>
-                  </div>
-                </div>
-                <div className="profile-list-end">
-                  <span className="profile-company-count">
-                    {(profile.companies?.length || 0)} companies
-                  </span>
-                  <span className={`expand-chevron${expanded === profile.id ? ' open' : ''}`}>
-                    ›
-                  </span>
-                </div>
+        <div className="card profile-settings-card">
+          {profile ? (
+            <p className="field-help profile-settings-intro">
+              Signed in as {profileDisplayName(profile)}
+              {profile.email ? ` · ${profile.email}` : ''}
+            </p>
+          ) : null}
+
+          <form onSubmit={handleSave}>
+            <div className="form-grid">
+              <div className="form-group">
+                <label>Display Name *</label>
+                <input
+                  value={profileName}
+                  onChange={(e) => setProfileName(e.target.value)}
+                  placeholder="e.g. Kevin - Software Engineer"
+                  required
+                />
               </div>
-
-              {expanded === profile.id && (
-                <div className="profile-details">
-                  <div className="profile-list-actions">
-                    <button className="btn btn-secondary btn-sm" onClick={() => setEditing(profile)}>
-                      Edit
-                    </button>
-                    <button className="btn btn-danger btn-sm" onClick={() => handleDelete(profile.id)}>
-                      Delete
-                    </button>
-                  </div>
-                  <div className="detail-grid">
-                    <div className="detail-item">
-                      <span className="detail-label">First Name</span>
-                      <span>{profile.firstName || '—'}</span>
-                    </div>
-                    <div className="detail-item">
-                      <span className="detail-label">Last Name</span>
-                      <span>{profile.lastName || '—'}</span>
-                    </div>
-                    <div className="detail-item">
-                      <span className="detail-label">Email</span>
-                      <span>{profile.email || '—'}</span>
-                    </div>
-                    <div className="detail-item">
-                      <span className="detail-label">Phone</span>
-                      <span>{profile.phoneNumber || '—'}</span>
-                    </div>
-                    <div className="detail-item">
-                      <span className="detail-label">Location</span>
-                      <span>{profileLocation(profile) || '—'}</span>
-                    </div>
-                    <div className="detail-item">
-                      <span className="detail-label">LinkedIn</span>
-                      {profile.linkedin ? (
-                        <a href={profile.linkedin} target="_blank" rel="noopener noreferrer">
-                          {profile.linkedin}
-                        </a>
-                      ) : (
-                        <span>—</span>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="detail-block">
-                    <span className="detail-label">General Resume Prompt</span>
-                    <p className="detail-text">{profile.generalPrompt || '—'}</p>
-                  </div>
-
-                  <div className="detail-block">
-                    <span className="detail-label">Resume Template</span>
-                    {profileHasTemplate(profile) ? (
-                      <>
-                        <p className="detail-text">
-                          {profile.resumeTemplateFileName || 'Custom template uploaded'}
-                          {profile.resumeTemplateFormat === 'docx' ? ' (Word)' : ''}
-                        </p>
-                        {profile.resumeTemplate ? (
-                          <pre className="template-preview">{profile.resumeTemplate.slice(0, 500)}
-                            {profile.resumeTemplate.length > 500 ? '...' : ''}
-                          </pre>
-                        ) : profile.resumeTemplateFormat === 'docx' ? (
-                          <p className="detail-text">Stored as Word document on server.</p>
-                        ) : null}
-                      </>
-                    ) : (
-                      <span className="detail-text">No template uploaded</span>
-                    )}
-                  </div>
-
-                  <div className="detail-block">
-                    <span className="detail-label">Companies</span>
-                    {profile.companies && profile.companies.length > 0 ? (
-                      <div className="company-view-list">
-                        {profile.companies.map((company) => (
-                          <div key={company.name} className="company-view-card">
-                            <div className="company-view-header">
-                              <strong>{company.name}</strong>
-                              <span className="company-view-meta">
-                                {company.bulletCount} bullet{company.bulletCount === 1 ? '' : 's'}
-                              </span>
-                            </div>
-                            <p className="detail-text">
-                              {company.prompt || 'No company-specific prompt'}
-                            </p>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <span className="detail-text">—</span>
-                    )}
-                  </div>
-                </div>
-              )}
+              <div className="form-group">
+                <label>First Name</label>
+                <input value={firstName} onChange={(e) => setFirstName(e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label>Last Name</label>
+                <input value={lastName} onChange={(e) => setLastName(e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label>Email</label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@example.com"
+                />
+              </div>
+              <div className="form-group">
+                <label>Phone Number</label>
+                <input
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                  placeholder="+1 (555) 000-0000"
+                />
+              </div>
+              <div className="form-group">
+                <label>LinkedIn</label>
+                <input
+                  value={linkedin}
+                  onChange={(e) => setLinkedin(e.target.value)}
+                  placeholder="https://linkedin.com/in/..."
+                />
+              </div>
+              <div className="form-group">
+                <label>City</label>
+                <input value={city} onChange={(e) => setCity(e.target.value)} placeholder="San Francisco" />
+              </div>
+              <div className="form-group">
+                <label>State</label>
+                <input value={state} onChange={(e) => setState(e.target.value)} placeholder="CA" />
+              </div>
             </div>
-          ))}
-        </div>
-      )}
 
-      {showForm && token && (
-        <ProfileForm
-          token={token}
-          saving={saving}
-          onSave={handleCreate}
-          onCancel={() => setShowForm(false)}
-        />
-      )}
-      {editing && token && (
-        <ProfileForm
-          initial={editing}
-          token={token}
-          saving={saving}
-          onSave={handleUpdate}
-          onCancel={() => setEditing(undefined)}
-          onTemplateUploaded={handleTemplateUploaded}
-        />
+            <div className="form-group">
+              <label>General Resume Prompt</label>
+              <p className="field-help">
+                High-level instructions for how every resume bullet should be written (tone, structure, style).
+              </p>
+              <textarea
+                value={generalPrompt}
+                onChange={(e) => setGeneralPrompt(e.target.value)}
+                placeholder="Example: Use past tense, start with action verbs, keep bullets to one line, emphasize leadership and measurable impact..."
+                rows={4}
+              />
+            </div>
+
+            <ProfileCompaniesEditor companies={companies} onChange={setCompanies} />
+
+            {token ? (
+              <ResumeTemplateSection
+                ref={templateRef}
+                token={token}
+                initialTemplate={profile?.resumeTemplate}
+                initialFileName={profile?.resumeTemplateFileName}
+                initialFormat={profile?.resumeTemplateFormat}
+                companies={companies}
+                onUploaded={(updated) => {
+                  setProfile(updated);
+                  applyProfileToForm(updated);
+                }}
+              />
+            ) : null}
+
+            <div className="form-actions">
+              <button type="submit" className="btn btn-primary" disabled={saving}>
+                {saving ? 'Saving...' : 'Save Profile'}
+              </button>
+            </div>
+          </form>
+        </div>
       )}
     </div>
   );

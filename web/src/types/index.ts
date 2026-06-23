@@ -107,9 +107,9 @@ export interface Application {
   jobDescription: string;
   hardSkills: string[];
   competencies: string[];
-  jobUrl?: string;
   linkedInJobUrl?: string;
   linkedInJobId?: string;
+  jobId?: string;
   realJobUrl?: string;
   location?: string;
   companyLogoUrl?: string;
@@ -127,34 +127,16 @@ export interface Application {
     additionalHardSkills: string;
     competencies: string;
   };
-  resumeId?: string;
-  status: 'recorded' | 'applied';
+  resumeUrl?: string;
+  status: 'recorded' | 'extracted' | 'resume_generated' | 'applied';
   aiCostUsd?: number;
   aiCostBreakdown?: {
     skillExtraction?: number;
     resumeBullets?: number;
-    resumeContent?: number;
   };
   createdAt: string;
   appliedAt?: string;
   updatedAt: string;
-}
-
-export interface Resume {
-  id: string;
-  userId: string;
-  applicationId: string;
-  profileId: string;
-  companyName: string;
-  jobTitle: string;
-  content: string;
-  outputFormat?: 'text' | 'docx';
-  summary?: string;
-  skillsSection?: string;
-  filePath?: string;
-  fileName?: string;
-  fileUrl?: string;
-  createdAt: string;
 }
 
 export interface CreateProfileInput {
@@ -167,4 +149,51 @@ export interface CreateProfileInput {
   generalPrompt?: string;
   companies?: ProfileCompany[];
   address?: ProfileAddress;
+}
+
+export type UserRole = 'user' | 'admin';
+export type UserStatus = 'pending' | 'approved' | 'rejected';
+
+export interface AuthUser {
+  uid: string;
+  email: string;
+  name?: string;
+  emailVerified?: boolean;
+  role: UserRole;
+  status: UserStatus;
+  createdAt?: string;
+  updatedAt?: string;
+  approvedAt?: string;
+}
+
+export interface AdminUserSummary {
+  uid: string;
+  email: string;
+  name: string;
+  role: UserRole;
+  status: UserStatus;
+  emailVerified: boolean;
+  createdAt: string;
+  updatedAt: string;
+  approvedAt?: string;
+  profileCount: number;
+  applicationCount: number;
+}
+
+export interface JobRecord {
+  id: string;
+  linkedInJobId: string;
+  companyName: string;
+  jobTitle: string;
+  jobDescription: string;
+  skills?: Application['skills'];
+  hardSkills: string[];
+  competencies: string[];
+  linkedInJobUrl: string;
+  realJobUrl: string;
+  location: string;
+  companyLogoUrl: string;
+  extractionCostUsd: number;
+  createdAt: string;
+  updatedAt: string;
 }

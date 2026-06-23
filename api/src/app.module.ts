@@ -8,6 +8,8 @@ import { ProfilesModule } from './profiles/profiles.module';
 import { ApplicationsModule } from './applications/applications.module';
 import { ResumesModule } from './resumes/resumes.module';
 import { UsersModule } from './users/users.module';
+import { JobsModule } from './jobs/jobs.module';
+import { AdminModule } from './admin/admin.module';
 import { SpaModule } from './spa/spa.module';
 
 @Module({
@@ -26,6 +28,8 @@ import { SpaModule } from './spa/spa.module';
     ProfilesModule,
     ApplicationsModule,
     ResumesModule,
+    JobsModule,
+    AdminModule,
     SpaModule,
   ],
 })

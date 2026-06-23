@@ -1,20 +1,12 @@
 import {
   BadRequestException,
-  ForbiddenException,
   Injectable,
-  NotFoundException,
 } from '@nestjs/common';
 import * as mammoth from 'mammoth';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
-import {
-  Resume as ResumeModel,
-  ResumeDocument,
-} from '../database/schemas/resume.schema';
 import { ProfilesService } from '../profiles/profiles.service';
 import { ApplicationsService } from '../applications/applications.service';
 import { FileStorageService } from '../storage/file-storage.service';
-import { GenerateResumeDto, Resume } from './dto/resume.dto';
+import { GenerateResumeDto, GenerateResumeResponse } from './dto/resume.dto';
 import {
   GenerateAllResumeBulletsDto,
   GenerateAllResumeBulletsResponse,
@@ -28,8 +20,6 @@ import { ResumeTemplateService } from './resume-template.service';
 @Injectable()
 export class ResumesService {
   constructor(
-    @InjectModel(ResumeModel.name)
-    private resumeModel: Model<ResumeDocument>,
     private profilesService: ProfilesService,
     private applicationsService: ApplicationsService,
     private fileStorageService: FileStorageService,
@@ -37,27 +27,6 @@ export class ResumesService {
     private resumeContentService: ResumeContentService,
     private resumeTemplateService: ResumeTemplateService,
   ) {}
-
-  async findAllByUser(userId: string): Promise<Resume[]> {
-    const docs = await this.resumeModel
-      .find({ userId })
-      .sort({ createdAt: -1 })
-      .exec();
-
-    return docs.map((doc) => this.toResume(doc));
-  }
-
-  async findOne(userId: string, resumeId: string): Promise<Resume> {
-    const doc = await this.resumeModel.findById(resumeId).exec();
-    if (!doc) {
-      throw new NotFoundException('Resume not found');
-    }
-    if (doc.userId !== userId) {
-      throw new ForbiddenException('Access denied');
-    }
-
-    return this.toResume(doc);
-  }
 
   private profileHasTemplate(profile: {
     resumeTemplate?: string;
@@ -71,9 +40,16 @@ export class ResumesService {
     return Boolean(profile.resumeTemplate?.trim());
   }
 
-  async generate(userId: string, dto: GenerateResumeDto): Promise<Resume> {
+  async generate(
+    userId: string,
+    dto: GenerateResumeDto,
+  ): Promise<GenerateResumeResponse> {
+    const profileId = dto.profileId?.trim()
+      ? dto.profileId.trim()
+      : (await this.profilesService.getOrCreateForUser(userId)).id;
+
     const [profile, application] = await Promise.all([
-      this.profilesService.findOne(userId, dto.profileId),
+      this.profilesService.findOne(userId, profileId),
       this.applicationsService.findOne(userId, dto.applicationId),
     ]);
 
@@ -110,15 +86,6 @@ export class ResumesService {
       generalPrompt: profile.generalPrompt,
     });
 
-    if (sections.usage) {
-      await this.applicationsService.recordAiCost(
-        dto.applicationId,
-        userId,
-        'resumeContent',
-        sections.usage,
-      );
-    }
-
     const fillData = {
       summary: sections.summary,
       skills: sections.skills,
@@ -128,10 +95,8 @@ export class ResumesService {
     };
 
     const isDocxTemplate = profile.resumeTemplateFormat === 'docx';
-    let content = '';
     let outputFileName = `Resume_${profile.profileName.replace(/\s+/g, '_')}_${application.companyName.replace(/\s+/g, '_')}_${Date.now()}`;
     let fileBuffer: Buffer | string = '';
-    const now = new Date().toISOString();
 
     if (isDocxTemplate) {
       const templateBuffer = this.fileStorageService.read(
@@ -142,12 +107,10 @@ export class ResumesService {
         fillData,
       );
 
-      const extracted = await mammoth.extractRawText({ buffer: filledDocx });
-      content = extracted.value;
       outputFileName += '.docx';
       fileBuffer = filledDocx;
     } else {
-      content = this.resumeTemplateService.fillTemplate(
+      const content = this.resumeTemplateService.fillTemplate(
         profile.resumeTemplate,
         fillData,
       );
@@ -155,65 +118,17 @@ export class ResumesService {
       fileBuffer = content;
     }
 
-    let doc: ResumeDocument | null = null;
-    const existingResumeId = application.resumeId?.trim();
-
-    if (existingResumeId) {
-      const existingById = await this.resumeModel.findById(existingResumeId).exec();
-      if (
-        existingById &&
-        existingById.userId === userId &&
-        existingById.applicationId === dto.applicationId
-      ) {
-        doc = existingById;
-      }
-    }
-
-    if (!doc) {
-      doc = await this.resumeModel
-        .findOne({ userId, applicationId: dto.applicationId })
-        .exec();
-    }
-
-    if (doc) {
-      doc.profileId = dto.profileId;
-      doc.companyName = application.companyName;
-      doc.jobTitle = application.jobTitle;
-      doc.content = content;
-      doc.outputFormat = isDocxTemplate ? 'docx' : 'text';
-      doc.summary = sections.summary;
-      doc.skillsSection = sections.skills;
-      doc.fileName = outputFileName;
-    } else {
-      doc = await this.resumeModel.create({
-        userId,
-        applicationId: dto.applicationId,
-        profileId: dto.profileId,
-        companyName: application.companyName,
-        jobTitle: application.jobTitle,
-        content,
-        outputFormat: isDocxTemplate ? 'docx' : 'text',
-        summary: sections.summary,
-        skillsSection: sections.skills,
-        filePath: '',
-        fileName: outputFileName,
-        createdAt: now,
-      });
-    }
-
     const filePath = this.fileStorageService.saveResume(
       userId,
-      doc._id.toString(),
+      dto.applicationId,
       outputFileName,
       fileBuffer,
     );
+    const fileUrl = this.fileStorageService.buildDownloadUrl(filePath);
 
-    doc.filePath = filePath;
-    await doc.save();
-
-    await this.applicationsService.updateStatus(
+    await this.applicationsService.updateResumeGenerated(
       dto.applicationId,
-      doc._id.toString(),
+      fileUrl,
     );
 
     const updatedApplication = await this.applicationsService.findOne(
@@ -222,7 +137,9 @@ export class ResumesService {
     );
 
     return {
-      ...this.toResume(doc),
+      filePath,
+      fileName: outputFileName,
+      fileUrl,
       applicationAiCostUsd: updatedApplication.aiCostUsd ?? 0,
     };
   }
@@ -231,7 +148,10 @@ export class ResumesService {
     userId: string,
     dto: GenerateResumeBulletsDto,
   ): Promise<GenerateResumeBulletsResponse> {
-    const profile = await this.profilesService.findOne(userId, dto.profileId);
+    const profileId = dto.profileId?.trim()
+      ? dto.profileId.trim()
+      : (await this.profilesService.getOrCreateForUser(userId)).id;
+    const profile = await this.profilesService.findOne(userId, profileId);
 
     const result = await this.resumeBulletService.generateBulletsForCompany(
       profile,
@@ -265,7 +185,10 @@ export class ResumesService {
     userId: string,
     dto: GenerateAllResumeBulletsDto,
   ): Promise<GenerateAllResumeBulletsResponse> {
-    const profile = await this.profilesService.findOne(userId, dto.profileId);
+    const profileId = dto.profileId?.trim()
+      ? dto.profileId.trim()
+      : (await this.profilesService.getOrCreateForUser(userId)).id;
+    const profile = await this.profilesService.findOne(userId, profileId);
 
     const { results, usage } =
       await this.resumeBulletService.generateBulletsForAllCompanies(
@@ -310,28 +233,6 @@ export class ResumesService {
       costUsd,
       usage,
       applicationAiCostUsd,
-    };
-  }
-
-  private toResume(doc: ResumeDocument): Resume {
-    const data = doc.toObject();
-    return {
-      id: doc._id.toString(),
-      userId: data.userId,
-      applicationId: data.applicationId,
-      profileId: data.profileId,
-      companyName: data.companyName,
-      jobTitle: data.jobTitle,
-      content: data.content,
-      outputFormat: data.outputFormat,
-      summary: data.summary,
-      skillsSection: data.skillsSection,
-      filePath: data.filePath,
-      fileName: data.fileName,
-      fileUrl: data.filePath
-        ? this.fileStorageService.buildDownloadUrl(data.filePath)
-        : '',
-      createdAt: data.createdAt,
     };
   }
 }

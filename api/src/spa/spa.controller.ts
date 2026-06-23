@@ -10,7 +10,7 @@ export class SpaController {
     res.redirect('/dashboard');
   }
 
-  @Get(['dashboard', 'profiles', 'applications'])
+  @Get(['dashboard', 'pending'])
   serveApp(@Res() res: Response) {
     const indexPath = resolveWebIndexPath();
     if (!indexPath) {

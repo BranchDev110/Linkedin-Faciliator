@@ -409,8 +409,10 @@ body {
   text-decoration: underline;
 }
 
-.profile-application-notice {
-  margin-top: 8px;
+.profile-application-notice,
+.job-application-notice {
+  margin-top: 0;
+  margin-bottom: 8px;
   padding: 10px 12px;
   border-radius: var(--radius-sm);
   font-size: 12px;
@@ -418,16 +420,61 @@ body {
   line-height: 1.45;
 }
 
-.profile-application-notice.notice-recorded {
+.profile-application-notice.notice-recorded,
+.job-application-notice.notice-recorded {
   background: #eff6ff;
   border: 1px solid #bfdbfe;
   color: #1d4ed8;
 }
 
-.profile-application-notice.notice-applied {
+.profile-application-notice.notice-resume_generated,
+.job-application-notice.notice-resume_generated {
+  background: #fefce8;
+  border: 1px solid #fde68a;
+  color: #92400e;
+}
+
+.profile-application-notice.notice-applied,
+.job-application-notice.notice-applied {
   background: #ecfdf5;
   border: 1px solid #a7f3d0;
   color: #047857;
+}
+
+.profile-status-ok {
+  color: #047857;
+  font-weight: 500;
+}
+
+.profile-setup-warnings {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.profile-setup-warnings p {
+  margin: 0;
+}
+
+.profile-setup-warnings p + p {
+  margin-top: 6px;
+}
+
+.job-saved-notice {
+  margin-bottom: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.45;
+  background: #fefce8;
+  border: 1px solid #fde68a;
+  color: #92400e;
 }
 
 .notice {

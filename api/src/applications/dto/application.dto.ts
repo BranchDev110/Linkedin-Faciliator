@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   IsArray,
   IsBoolean,
+  IsIn,
   IsNumber,
   IsObject,
   IsOptional,
@@ -12,6 +13,13 @@ import {
 } from 'class-validator';
 import { ApplicationAiCostBreakdown } from '../../openai/openai-usage.types';
 import { ApplicationStatus } from '../application-status.util';
+
+const APPLICATION_STATUSES = [
+  'recorded',
+  'extracted',
+  'resume_generated',
+  'applied',
+] as const;
 
 export interface ApplicationSkills {
   role: string;
@@ -37,9 +45,10 @@ export class ApplicationCompanyBulletsDto {
 }
 
 export class CreateApplicationDto {
+  @IsOptional()
   @IsString()
   @MinLength(1)
-  profileId!: string;
+  profileId?: string;
 
   @IsString()
   @MinLength(1)
@@ -76,6 +85,10 @@ export class CreateApplicationDto {
 
   @IsOptional()
   @IsString()
+  jobId?: string;
+
+  @IsOptional()
+  @IsString()
   realJobUrl?: string;
 
   @IsOptional()
@@ -107,7 +120,12 @@ export class CreateApplicationDto {
 
   @IsOptional()
   @IsString()
-  resumeId?: string;
+  resumeUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(APPLICATION_STATUSES)
+  status?: ApplicationStatus;
 }
 
 export class UpdateApplicationDto {
@@ -166,7 +184,7 @@ export class UpdateApplicationDto {
 
   @IsOptional()
   @IsString()
-  resumeId?: string;
+  resumeUrl?: string;
 }
 
 export class MarkApplicationsAppliedDto {
@@ -189,15 +207,15 @@ export interface Application {
   jobDescription: string;
   hardSkills: string[];
   competencies: string[];
-  jobUrl?: string;
   linkedInJobUrl?: string;
   linkedInJobId?: string;
+  jobId?: string;
   realJobUrl?: string;
   location?: string;
   companyLogoUrl?: string;
   companyBullets?: ApplicationCompanyBullets[];
   skills?: ApplicationSkills;
-  resumeId?: string;
+  resumeUrl?: string;
   status: ApplicationStatus;
   aiCostUsd?: number;
   aiCostBreakdown?: ApplicationAiCostBreakdown;

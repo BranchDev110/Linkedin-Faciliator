@@ -1,4 +1,6 @@
-const TOKEN_KEY = 'li_facilitator_token';
+import {
+  TOKEN_KEY,
+} from './auth-session';
 
 type TokenProvider = () => Promise<string | null>;
 
@@ -75,7 +77,20 @@ export async function apiRequest<T>(
     throw new Error(error.message || `HTTP ${response.status}`);
   }
 
-  return response.json();
+  if (response.status === 204) {
+    return null as T;
+  }
+
+  const text = await response.text();
+  if (!text.trim()) {
+    return null as T;
+  }
+
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error('Invalid response from server');
+  }
 }
 
 function fileRequestHeaders(token: string): Record<string, string> {
@@ -114,4 +129,23 @@ export async function downloadAuthenticatedFile(
   link.download = fileName || 'resume';
   link.click();
   URL.revokeObjectURL(url);
+}
+
+export function filePathFromDownloadUrl(downloadUrl: string): string {
+  try {
+    const url = new URL(downloadUrl, window.location.origin);
+    const match = url.pathname.match(/\/files\/(.+)$/);
+    if (match?.[1]) {
+      return decodeURIComponent(match[1]);
+    }
+  } catch {
+    // Ignore malformed URLs.
+  }
+  return '';
+}
+
+export function fileNameFromDownloadUrl(downloadUrl: string): string {
+  const filePath = filePathFromDownloadUrl(downloadUrl);
+  if (!filePath) return 'resume.docx';
+  return filePath.split('/').pop() || 'resume.docx';
 }

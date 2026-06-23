@@ -10,14 +10,14 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { buildChartData, ChartPeriod } from '../lib/dashboard-stats';
-import { Application, Profile } from '../types';
+import { AdminUserSummary, Application } from '../types';
 import './ApplicationChart.css';
 
 interface ApplicationChartProps {
   title: string;
   period: ChartPeriod;
-  profiles: Profile[];
   applications: Application[];
+  adminUsers?: AdminUserSummary[];
 }
 
 const CustomTooltip = ({
@@ -46,38 +46,44 @@ const CustomTooltip = ({
 export default function ApplicationChart({
   title,
   period,
-  profiles,
   applications,
+  adminUsers,
 }: ApplicationChartProps) {
-  const [selectedProfileId, setSelectedProfileId] = useState('all');
+  const [selectedUserId, setSelectedUserId] = useState('all');
+  const isAdminMode = Boolean(adminUsers?.length);
 
   const data = useMemo(
     () =>
       buildChartData(
         applications,
         period,
-        selectedProfileId === 'all' ? undefined : selectedProfileId,
+        undefined,
+        isAdminMode && selectedUserId !== 'all' ? selectedUserId : undefined,
       ),
-    [applications, period, selectedProfileId],
+    [applications, period, selectedUserId, isAdminMode],
   );
 
   return (
     <div className="chart-card">
       <div className="chart-header">
         <h3 className="chart-title">{title}</h3>
-        <select
-          className="chart-profile-select"
-          value={selectedProfileId}
-          onChange={(e) => setSelectedProfileId(e.target.value)}
-          aria-label={`Select profile for ${title} chart`}
-        >
-          <option value="all">All profiles</option>
-          {profiles.map((profile) => (
-            <option key={profile.id} value={profile.id}>
-              {profile.profileName}
-            </option>
-          ))}
-        </select>
+        {isAdminMode ? (
+          <div className="chart-filter-group">
+            <select
+              className="chart-profile-select"
+              value={selectedUserId}
+              onChange={(e) => setSelectedUserId(e.target.value)}
+              aria-label={`Select user for ${title} chart`}
+            >
+              <option value="all">All users</option>
+              {adminUsers?.map((user) => (
+                <option key={user.uid} value={user.uid}>
+                  {user.email}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : null}
       </div>
       <ResponsiveContainer width="100%" height={240}>
         <BarChart data={data} margin={{ top: 4, right: 4, left: -20, bottom: 0 }} barGap={4}>
@@ -89,10 +95,10 @@ export default function ApplicationChart({
             axisLine={false}
           />
           <YAxis
-            allowDecimals={false}
             tick={{ fontSize: 11, fill: '#94a3b8' }}
             tickLine={false}
             axisLine={false}
+            allowDecimals={false}
           />
           <Tooltip content={<CustomTooltip />} cursor={{ fill: '#f8fafc' }} />
           <Legend

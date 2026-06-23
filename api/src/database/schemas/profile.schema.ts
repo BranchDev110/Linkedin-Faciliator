@@ -72,3 +72,4 @@ export class Profile {
 }
 
 export const ProfileSchema = SchemaFactory.createForClass(Profile);
+ProfileSchema.index({ userId: 1 }, { unique: true });

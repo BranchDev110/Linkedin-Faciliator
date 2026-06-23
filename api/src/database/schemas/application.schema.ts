@@ -12,7 +12,7 @@ export class ApplicationCompanyBullets {
   bullets!: string;
 }
 
-@Schema({ collection: 'applications' })
+@Schema({ collection: 'applications', strict: false })
 export class Application {
   @Prop({ required: true, index: true })
   userId!: string;
@@ -20,41 +20,20 @@ export class Application {
   @Prop({ required: true })
   profileId!: string;
 
-  @Prop({ required: true })
-  companyName!: string;
+  @Prop({ default: '', index: true })
+  jobId!: string;
 
-  @Prop({ required: true })
-  jobTitle!: string;
+  @Prop({ default: '', index: true })
+  linkedInJobId!: string;
 
-  @Prop({ required: true })
-  jobDescription!: string;
+  @Prop({ type: MongooseSchema.Types.Mixed })
+  skills?: Record<string, unknown>;
 
   @Prop({ type: [String], default: [] })
   hardSkills!: string[];
 
   @Prop({ type: [String], default: [] })
   competencies!: string[];
-
-  @Prop({ type: MongooseSchema.Types.Mixed })
-  skills?: Record<string, unknown>;
-
-  @Prop({ default: '' })
-  jobUrl!: string;
-
-  @Prop({ default: '' })
-  linkedInJobUrl!: string;
-
-  @Prop({ default: '', index: true })
-  linkedInJobId!: string;
-
-  @Prop({ default: '' })
-  realJobUrl!: string;
-
-  @Prop({ default: '' })
-  location!: string;
-
-  @Prop({ default: '' })
-  companyLogoUrl!: string;
 
   @Prop({ type: [ApplicationCompanyBullets], default: [] })
   companyBullets!: ApplicationCompanyBullets[];
@@ -67,7 +46,7 @@ export class Application {
   status!: 'recorded' | 'applied' | 'extracted' | 'resume_generated';
 
   @Prop({ default: '' })
-  resumeId!: string;
+  resumeUrl!: string;
 
   @Prop({ default: 0 })
   aiCostUsd!: number;

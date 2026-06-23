@@ -1,0 +1,9 @@
+.disabled-button-tooltip-wrap {
+  display: inline-flex;
+  vertical-align: middle;
+  cursor: not-allowed;
+}
+
+.disabled-button-tooltip-wrap > button:disabled {
+  pointer-events: none;
+}

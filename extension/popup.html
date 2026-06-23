@@ -38,15 +38,9 @@
         <button id="btn-signout" class="btn-ghost">Sign out</button>
       </div>
 
-      <div class="field-group">
-        <div class="field-label-row">
-          <label class="field-label" for="profile-select">Profile</label>
-          <button id="btn-refresh-profiles" type="button" class="btn-ghost btn-refresh">Refresh</button>
-        </div>
-        <select id="profile-select" class="field-select">
-          <option value="">Select a profile...</option>
-        </select>
-        <a id="dashboard-link" class="field-hint" href="#" target="_blank">Manage profiles in dashboard →</a>
+      <div class="field-group profile-status-group">
+        <p id="profile-summary" class="field-hint">Loading profile...</p>
+        <div id="profile-setup-warnings" class="profile-setup-warnings hidden" role="status"></div>
       </div>
 
       <div id="no-job" class="notice hidden">

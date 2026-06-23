@@ -361,6 +361,14 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
+.profile-settings-card {
+  padding: 20px;
+}
+
+.profile-settings-intro {
+  margin-bottom: 16px;
+}
+
 @media (max-width: 768px) {
   .detail-grid,
   .form-grid {

@@ -2,7 +2,7 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import './Layout.css';
 
-function NavIcon({ name }: { name: 'dashboard' | 'profiles' | 'applications' }) {
+function NavIcon({ name }: { name: 'dashboard' | 'profiles' | 'applications' | 'jobs' | 'users' }) {
   const icons = {
     dashboard: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -26,12 +26,26 @@ function NavIcon({ name }: { name: 'dashboard' | 'profiles' | 'applications' }) 
         <line x1="16" y1="17" x2="8" y2="17" />
       </svg>
     ),
+    jobs: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <rect x="2" y="7" width="20" height="14" rx="2" />
+        <path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" />
+      </svg>
+    ),
+    users: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+        <circle cx="9" cy="7" r="4" />
+        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+      </svg>
+    ),
   };
   return icons[name];
 }
 
 export default function Layout() {
-  const { user, logout } = useAuth();
+  const { user, logout, isAdmin } = useAuth();
   const initials = user?.email?.charAt(0).toUpperCase() || '?';
 
   return (
@@ -60,7 +74,7 @@ export default function Layout() {
             className={({ isActive }) => `sidebar-link${isActive ? ' active' : ''}`}
           >
             <NavIcon name="profiles" />
-            <span>Profiles</span>
+            <span>My Profile</span>
           </NavLink>
           <NavLink
             to="/applications"
@@ -69,6 +83,31 @@ export default function Layout() {
             <NavIcon name="applications" />
             <span>Applications</span>
           </NavLink>
+          <NavLink
+            to="/jobs"
+            className={({ isActive }) => `sidebar-link${isActive ? ' active' : ''}`}
+          >
+            <NavIcon name="jobs" />
+            <span>Jobs</span>
+          </NavLink>
+          {isAdmin && (
+            <>
+              <NavLink
+                to="/admin/dashboard"
+                className={({ isActive }) => `sidebar-link${isActive ? ' active' : ''}`}
+              >
+                <NavIcon name="dashboard" />
+                <span>Admin Dashboard</span>
+              </NavLink>
+              <NavLink
+                to="/admin/users"
+                className={({ isActive }) => `sidebar-link${isActive ? ' active' : ''}`}
+              >
+                <NavIcon name="users" />
+                <span>User Management</span>
+              </NavLink>
+            </>
+          )}
         </nav>
 
         <div className="sidebar-footer">

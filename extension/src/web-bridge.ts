@@ -4,6 +4,15 @@ const AUTH_FROM_EXTENSION_EVENT = 'li-facilitator-auth-from-extension';
 const BRIDGE_DEAD_KEY = 'li_facilitator_bridge_dead';
 const TOKEN_KEY = 'li_facilitator_token';
 const EMAIL_KEY = 'li_facilitator_email';
+const SIGNED_OUT_KEY = 'li_facilitator_signed_out';
+
+function isSignedOutOnWeb(): boolean {
+  try {
+    return sessionStorage.getItem(SIGNED_OUT_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
 
 let tornDown = false;
 
@@ -63,6 +72,11 @@ function safeSendMessage(message: Record<string, unknown>) {
 }
 
 function applyExtensionAuth(token: string, email: string) {
+  try {
+    sessionStorage.removeItem(SIGNED_OUT_KEY);
+  } catch {
+    // ignore
+  }
   localStorage.setItem(TOKEN_KEY, token);
   localStorage.setItem(EMAIL_KEY, email);
   window.dispatchEvent(new CustomEvent(AUTH_SYNC_EVENT));
@@ -116,10 +130,16 @@ function notifySignOut() {
 }
 
 function onAuthSync() {
+  if (isSignedOutOnWeb()) return;
   notifyExtensionAfterSignIn();
 }
 
 function onAuthClear() {
+  try {
+    sessionStorage.setItem(SIGNED_OUT_KEY, '1');
+  } catch {
+    // ignore
+  }
   notifySignOut();
 }
 
@@ -138,11 +158,13 @@ if (canUseExtensionRuntime()) {
   const fromExtension =
     new URLSearchParams(window.location.search).get('source') === 'extension';
 
-  if (fromExtension) {
+  if (isSignedOutOnWeb()) {
+    // Do not pull stale extension sessions into a signed-out web tab.
+  } else if (fromExtension) {
     requestAuthFromExtension();
   } else if (!localStorage.getItem(TOKEN_KEY)) {
     requestAuthFromExtension();
-  } else {
+  } else if (localStorage.getItem(TOKEN_KEY)) {
     syncExistingWebSessionToExtension();
   }
 }

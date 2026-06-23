@@ -15,6 +15,11 @@ export default defineConfig({
       '/auth': {
         target: 'http://localhost:3001',
         changeOrigin: true,
+        bypass(req) {
+          if (req.method === 'GET' && req.headers.accept?.includes('text/html')) {
+            return req.url;
+          }
+        },
       },
       '/files': {
         target: 'http://localhost:3001',

@@ -1,5 +1,6 @@
 import { Application } from '../types';
 import { extractRealJdSite } from './real-jd-site';
+import { normalizeApplicationStatus } from './application-status';
 
 export type ApplicationSortField =
   | 'companyName'
@@ -8,10 +9,6 @@ export type ApplicationSortField =
   | 'recordedAt';
 
 export type SortDirection = 'asc' | 'desc';
-
-function normalizeStatus(status: Application['status'] | string): Application['status'] {
-  return status === 'applied' ? 'applied' : 'recorded';
-}
 
 function compareStrings(a: string, b: string, direction: SortDirection): number {
   const result = a.localeCompare(b, undefined, { sensitivity: 'base' });
@@ -30,8 +27,8 @@ export function sortApplications(
       case 'companyName':
         return compareStrings(left.companyName, right.companyName, direction);
       case 'status': {
-        const leftStatus = normalizeStatus(left.status);
-        const rightStatus = normalizeStatus(right.status);
+        const leftStatus = normalizeApplicationStatus(left.status);
+        const rightStatus = normalizeApplicationStatus(right.status);
         return compareStrings(leftStatus, rightStatus, direction);
       }
       case 'realJdSite': {

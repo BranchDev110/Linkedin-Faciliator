@@ -56,7 +56,12 @@ function patchManifest() {
   );
   if (bridgeScript) {
     bridgeScript.matches = Array.from(
-      new Set([...(bridgeScript.matches || []), webHost, 'http://localhost:5173/*']),
+      new Set([
+        ...(bridgeScript.matches || []),
+        webHost,
+        'http://localhost:5173/*',
+        'http://localhost:3001/*',
+      ]),
     );
   }
 

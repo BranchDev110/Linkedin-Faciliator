@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "LI Facilitator",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Extract LinkedIn job details and generate tailored resumes with AI",
   "permissions": [
     "storage",
@@ -33,8 +33,10 @@
   },
   "content_scripts": [
     {
-      "matches": ["http://*/*", "https://*/*"],
-      "exclude_matches": ["*://chrome.google.com/*", "*://chromewebstore.google.com/*"],
+      "matches": [
+        "https://www.linkedin.com/*",
+        "https://linkedin.com/*"
+      ],
       "js": ["sidebar-host.js"],
       "run_at": "document_idle"
     },
@@ -49,7 +51,8 @@
     {
       "matches": [
         "https://garden-scrounger-unzip.ngrok-free.dev/*",
-        "http://localhost:5173/*"
+        "http://localhost:5173/*",
+        "http://localhost:3001/*"
       ],
       "js": ["web-bridge.js"],
       "run_at": "document_idle"
@@ -58,7 +61,10 @@
   "web_accessible_resources": [
     {
       "resources": ["sidebar.html", "sidebar.js", "sidebar.css"],
-      "matches": ["http://*/*", "https://*/*"]
+      "matches": [
+        "https://www.linkedin.com/*",
+        "https://linkedin.com/*"
+      ]
     }
   ],
   "icons": {

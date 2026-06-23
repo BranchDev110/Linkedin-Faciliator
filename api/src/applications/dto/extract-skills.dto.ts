@@ -1,5 +1,5 @@
 import { IsOptional, IsString, MinLength } from 'class-validator';
-import { ApplicationSkills } from './application.dto';
+import { Application, ApplicationSkills } from './application.dto';
 
 export class ExtractApplicationSkillsDto {
   @IsString()
@@ -9,6 +9,30 @@ export class ExtractApplicationSkillsDto {
   @IsOptional()
   @IsString()
   companyName?: string;
+
+  @IsOptional()
+  @IsString()
+  jobTitle?: string;
+
+  @IsOptional()
+  @IsString()
+  linkedInJobUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  realJobUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  location?: string;
+
+  @IsOptional()
+  @IsString()
+  companyLogoUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  profileId?: string;
 
   @IsOptional()
   @IsString()
@@ -24,4 +48,6 @@ export interface ExtractApplicationSkillsResponse {
   costUsd: number;
   fromCache?: boolean;
   applicationAiCostUsd?: number;
+  applicationId?: string;
+  application?: Application;
 }
