@@ -112,6 +112,9 @@ const jobTitle = document.getElementById('job-title')!;
 const jobCompany = document.getElementById('job-company')!;
 const companyAvatar = document.getElementById('company-avatar')!;
 const jobSkills = document.getElementById('job-skills')!;
+const realJobUrlRow = document.getElementById('real-job-url-row')!;
+const realJobUrlStatus = document.getElementById('real-job-url-status')!;
+const realJobUrlLink = document.getElementById('real-job-url-link') as HTMLAnchorElement;
 const jdText = document.getElementById('jd-text') as HTMLTextAreaElement;
 const jdHighlight = document.getElementById('jd-highlight')!;
 const skillsText = document.getElementById('skills-text') as HTMLTextAreaElement;
@@ -444,6 +447,27 @@ async function applyApplicationPrefill(
   } else {
     hideResumeDownload();
     markResumeInputsChanged();
+  }
+
+  if (app.realJobUrl?.trim()) {
+    if (!currentJob) {
+      currentJob = {
+        companyName: app.companyName || 'Unknown Company',
+        jobTitle: app.jobTitle || 'Unknown Position',
+        jobDescription: app.jobDescription || jdText.value.trim(),
+        hardSkills: [],
+        competencies: [],
+        location: app.location || '',
+        jobUrl: app.linkedInJobUrl || app.jobUrl || '',
+        linkedInJobUrl: app.linkedInJobUrl || app.jobUrl || '',
+        linkedInJobId: app.linkedInJobId,
+        realJobUrl: app.realJobUrl.trim(),
+        companyLogoUrl: app.companyLogoUrl,
+      };
+    } else {
+      currentJob = { ...currentJob, realJobUrl: app.realJobUrl.trim() };
+    }
+    updateRealJobUrlDisplay();
   }
 
   updateAppliedButton();
@@ -1313,6 +1337,8 @@ async function performExtractSkills(token: string): Promise<ExtractApplicationSk
     throw new Error('Load a job description before extracting skills.');
   }
 
+  await ensureRealJobUrlResolved();
+
   const description = jdText.value.trim();
   const jobData = getJobData(description);
 
@@ -1747,6 +1773,105 @@ function setCompanyAvatar(logoUrl: string | undefined, companyName: string) {
   companyAvatar.textContent = companyName.charAt(0).toUpperCase();
 }
 
+function needsRealJobUrl(job: ExtractedJob | null): boolean {
+  if (!job) return false;
+  if (job.applyMethod === 'easy') return false;
+  if (job.applyMethod === 'offsite') return true;
+  return !job.realJobUrl;
+}
+
+function updateRealJobUrlDisplay(options: { loading?: boolean } = {}): void {
+  if (!currentJob || jobPanel.classList.contains('hidden')) {
+    realJobUrlRow.classList.add('hidden');
+    return;
+  }
+
+  realJobUrlRow.classList.remove('hidden');
+  realJobUrlStatus.className = 'real-job-url-status';
+  realJobUrlLink.classList.add('hidden');
+
+  if (currentJob.applyMethod === 'easy') {
+    realJobUrlStatus.textContent = 'Easy Apply — no external company URL';
+    realJobUrlStatus.classList.add('is-muted');
+    return;
+  }
+
+  const url = currentJob.realJobUrl?.trim();
+  if (url) {
+    realJobUrlStatus.textContent = 'External apply URL';
+    realJobUrlStatus.classList.add('is-success');
+    realJobUrlLink.href = url;
+    realJobUrlLink.textContent = url;
+    realJobUrlLink.classList.remove('hidden');
+    return;
+  }
+
+  if (options.loading || needsRealJobUrl(currentJob)) {
+    realJobUrlStatus.textContent = options.loading
+      ? 'Loading company apply URL...'
+      : 'Company apply URL not found yet';
+    realJobUrlStatus.classList.add(options.loading ? 'is-loading' : 'is-warning');
+    return;
+  }
+
+  realJobUrlStatus.textContent = 'Apply URL not available';
+  realJobUrlStatus.classList.add('is-muted');
+}
+
+async function resolveRealJobUrlFromActiveTab(): Promise<void> {
+  if (!currentJob || !needsRealJobUrl(currentJob)) return;
+
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id || !tab.url?.includes('linkedin.com')) return;
+
+  const response = await requestJobExtraction(tab.id);
+  if (!response?.job || !currentJob) return;
+
+  currentJob = {
+    ...currentJob,
+    realJobUrl: response.job.realJobUrl || currentJob.realJobUrl,
+    applyMethod: response.job.applyMethod ?? currentJob.applyMethod,
+    linkedInJobId: response.job.linkedInJobId || currentJob.linkedInJobId,
+    linkedInJobUrl: response.job.linkedInJobUrl || currentJob.linkedInJobUrl,
+    jobUrl: response.job.jobUrl || currentJob.jobUrl,
+  };
+}
+
+async function ensureRealJobUrlResolved(): Promise<void> {
+  if (!currentJob) return;
+
+  if (currentJob.applyMethod === 'easy') {
+    updateRealJobUrlDisplay();
+    return;
+  }
+
+  if (currentJob.realJobUrl?.trim()) {
+    updateRealJobUrlDisplay();
+    return;
+  }
+
+  if (!needsRealJobUrl(currentJob)) {
+    updateRealJobUrlDisplay();
+    return;
+  }
+
+  updateRealJobUrlDisplay({ loading: true });
+  await resolveRealJobUrlFromActiveTab();
+  updateRealJobUrlDisplay();
+}
+
+function scheduleRealJobUrlResolution(): void {
+  if (!currentJob || !needsRealJobUrl(currentJob) || currentJob.realJobUrl?.trim()) {
+    updateRealJobUrlDisplay();
+    return;
+  }
+
+  updateRealJobUrlDisplay({ loading: true });
+  void resolveRealJobUrlFromActiveTab().then(() => {
+    updateRealJobUrlDisplay();
+  });
+}
+
 function displayJob(job: ExtractedJob): Promise<void> {
   lastAutoDetectedJobKey = getJobDetectionKey(job);
 
@@ -1773,6 +1898,8 @@ function displayJob(job: ExtractedJob): Promise<void> {
 
   jobPanel.classList.remove('hidden');
   noJob.classList.add('hidden');
+  updateRealJobUrlDisplay();
+  scheduleRealJobUrlResolution();
   return refreshJobSkillsAndApplication().then(() => {
     if (
       getSelectedCompanies().length > 0 &&
@@ -1797,6 +1924,7 @@ function clearJobDisplay() {
   companyAvatar.classList.remove('has-logo');
   jobPanel.classList.add('hidden');
   noJob.classList.remove('hidden');
+  realJobUrlRow.classList.add('hidden');
   resetApplicationPrefillState({ keepSkills: false });
   updateActionButtons();
 }
@@ -1895,6 +2023,7 @@ async function extractJobFromTab(showFeedback = false) {
 
     if (response?.job?.jobDescription) {
       await displayJob(response.job);
+      updateRealJobUrlDisplay();
       if (showFeedback) {
         showStatus(
           skillsLoadedFromCache
@@ -2044,6 +2173,8 @@ btnOneClickDone.addEventListener('click', () => {
 async function saveApplication(token: string): Promise<ApplicationRecord | null> {
   const description = jdText.value.trim();
   if (!description || !currentProfile) return null;
+
+  await ensureRealJobUrlResolved();
 
   if (!lastApplicationId) {
     const lookupPath = buildApplicationLookupPath();

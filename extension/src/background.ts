@@ -6,6 +6,55 @@ import {
   persistAuthSession,
   SIGNED_OUT_KEY,
 } from './auth-session';
+import { extractApplyUrlFromVoyagerPayload } from './linkedin-voyager';
+
+const VOYAGER_JOB_POSTINGS_ENDPOINT = (jobId: string) =>
+  `https://www.linkedin.com/voyager/api/jobs/jobPostings/${jobId}`;
+
+async function getLinkedInCsrfToken(): Promise<string> {
+  const cookie = await chrome.cookies.get({
+    url: 'https://www.linkedin.com/',
+    name: 'JSESSIONID',
+  });
+
+  return cookie?.value?.replace(/^"|"$/g, '') || '';
+}
+
+async function buildLinkedInCookieHeader(): Promise<string> {
+  const cookies = await chrome.cookies.getAll({ domain: '.linkedin.com' });
+  return cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join('; ');
+}
+
+async function fetchCompanyApplyUrlViaVoyagerBackground(jobId: string): Promise<string> {
+  if (!jobId || !/^\d+$/.test(jobId)) return '';
+
+  const csrf = await getLinkedInCsrfToken();
+  const cookieHeader = await buildLinkedInCookieHeader();
+  if (!csrf || !cookieHeader) return '';
+
+  const headers = {
+    'csrf-token': csrf,
+    accept: 'application/vnd.linkedin.normalized+json+2.1',
+    'x-li-lang': 'en_US',
+    'x-restli-protocol-version': '2.0.0',
+    cookie: cookieHeader,
+  };
+
+  for (const endpoint of [VOYAGER_JOB_POSTINGS_ENDPOINT(jobId)]) {
+    try {
+      const response = await fetch(endpoint, { headers });
+      if (!response.ok) continue;
+
+      const payload = await response.json();
+      const url = extractApplyUrlFromVoyagerPayload(payload);
+      if (url) return url;
+    } catch {
+      // try next endpoint
+    }
+  }
+
+  return '';
+}
 
 const WEB_URL_PATTERNS = [
   `${WEB_URL.replace(/\/$/, '')}/*`,
@@ -232,6 +281,15 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       } catch {
         sendResponse({});
       }
+    })();
+    return true;
+  }
+
+  if (message.type === 'FETCH_VOYAGER_APPLY_URL') {
+    (async () => {
+      const jobId = typeof message.jobId === 'string' ? message.jobId : '';
+      const url = await fetchCompanyApplyUrlViaVoyagerBackground(jobId);
+      sendResponse({ url });
     })();
     return true;
   }

@@ -1,4 +1,5 @@
 import { extractJob } from './extract-job';
+import { bindVoyagerJobPostingListener } from './linkedin-voyager-cache';
 
 const CONTENT_SCRIPT_FLAG = '__liFacilitatorContentLoaded';
 
@@ -21,6 +22,8 @@ if (!shouldInitialize()) {
 } else {
   (window as Window & { [CONTENT_SCRIPT_FLAG]?: boolean })[CONTENT_SCRIPT_FLAG] = true;
 
+  bindVoyagerJobPostingListener();
+
   let notifyTimer: ReturnType<typeof setTimeout> | null = null;
 
   function notifyJobUpdate() {
@@ -33,10 +36,11 @@ if (!shouldInitialize()) {
     notifyTimer = setTimeout(() => {
       if (!isExtensionRuntimeValid()) return;
 
-      const job = extractJob();
-      if (job) {
-        chrome.runtime.sendMessage({ type: 'JOB_DETECTED', job }).catch(() => {});
-      }
+      void extractJob({ allowVoyagerFetch: false }).then((job) => {
+        if (job) {
+          chrome.runtime.sendMessage({ type: 'JOB_DETECTED', job }).catch(() => {});
+        }
+      });
     }, 500);
   }
 
@@ -47,7 +51,7 @@ if (!shouldInitialize()) {
     }
 
     if (message.type === 'EXTRACT_JOB') {
-      sendResponse({ job: extractJob() });
+      void extractJob({ allowVoyagerFetch: true }).then((job) => sendResponse({ job }));
       return true;
     }
   });

@@ -511,6 +511,56 @@ body {
   margin-bottom: 12px;
 }
 
+.real-job-url {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.real-job-url .field-label {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.real-job-url-status {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+.real-job-url-status.is-loading {
+  color: var(--text-secondary);
+}
+
+.real-job-url-status.is-success {
+  color: var(--text-primary);
+}
+
+.real-job-url-status.is-warning {
+  color: #b45309;
+}
+
+.real-job-url-status.is-muted {
+  color: var(--text-secondary);
+}
+
+.real-job-url-link {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--accent);
+  word-break: break-all;
+  text-decoration: none;
+}
+
+.real-job-url-link:hover {
+  text-decoration: underline;
+}
+
 .company-avatar {
   width: 40px;
   height: 40px;

@@ -1,4 +1,5 @@
 import { validateAuthToken } from './auth-validation';
+import { WEB_URL } from './config';
 import {
   ExtensionContextError,
   isExtensionContextError,
@@ -78,6 +79,16 @@ export function isAppWebUrl(url?: string): boolean {
   if (!url) return false;
 
   const normalized = url.toLowerCase();
+
+  try {
+    const configuredHost = new URL(WEB_URL).host.toLowerCase();
+    if (configuredHost && normalized.includes(configuredHost)) {
+      return true;
+    }
+  } catch {
+    // ignore invalid WEB_URL at build time
+  }
+
   return (
     normalized.includes('localhost:5173') ||
     normalized.includes('localhost:3001') ||

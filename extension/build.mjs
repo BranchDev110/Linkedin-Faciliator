@@ -48,6 +48,7 @@ function patchManifest() {
       apiHost,
       'http://localhost:5173/*',
       'http://localhost:3001/*',
+      'http://localhost:3002/*',
     ]),
   );
 
@@ -61,6 +62,7 @@ function patchManifest() {
         webHost,
         'http://localhost:5173/*',
         'http://localhost:3001/*',
+        'http://localhost:3002/*',
       ]),
     );
   }
@@ -100,6 +102,7 @@ const contentScriptBuild = {
   ...sharedBuildOptions,
   entryPoints: {
     content: 'src/content.ts',
+    'voyager-hook': 'src/voyager-hook.ts',
     'web-bridge': 'src/web-bridge.ts',
     'sidebar-host': 'src/sidebar-host.ts',
   },
