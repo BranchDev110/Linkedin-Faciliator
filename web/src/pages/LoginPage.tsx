@@ -1,33 +1,45 @@
 import { FormEvent, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import AuthLayout from '../components/AuthLayout';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/Toast';
-import { redirectToHome } from '../lib/auth-routes';
+import { getHomePathForUser } from '../lib/auth-routes';
+import { waitForExtensionSync } from '../lib/extension-auth-sync';
 
 export default function LoginPage() {
   const [searchParams] = useSearchParams();
   const fromExtension = searchParams.get('source') === 'extension';
+  const navigate = useNavigate();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const { signIn } = useAuth();
   const { showToast } = useToast();
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
+    setSubmitting(true);
+
     try {
       const user = await signIn(email, password);
+
+      if (fromExtension) {
+        await waitForExtensionSync();
+      }
+
       showToast(
         fromExtension
           ? 'Signed in. Return to LinkedIn to continue.'
           : 'Signed in successfully.',
       );
-      redirectToHome(user, fromExtension);
+      navigate(getHomePathForUser(user, fromExtension), { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sign in failed');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -79,8 +91,8 @@ export default function LoginPage() {
 
           {error && <p className="error-message">{error}</p>}
 
-          <button type="submit" className="btn btn-primary">
-            Sign in
+          <button type="submit" className="btn btn-primary" disabled={submitting}>
+            {submitting ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
 

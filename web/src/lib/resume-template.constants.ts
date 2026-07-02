@@ -1,0 +1,1 @@
+export const RESUME_TEMPLATE_MAX_BYTES = 500 * 1024;

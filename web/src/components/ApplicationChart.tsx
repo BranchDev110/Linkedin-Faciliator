@@ -10,13 +10,14 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { buildChartData, ChartPeriod } from '../lib/dashboard-stats';
-import { AdminUserSummary, Application } from '../types';
+import { AdminUserSummary, Application, JobRecord } from '../types';
 import './ApplicationChart.css';
 
 interface ApplicationChartProps {
   title: string;
   period: ChartPeriod;
   applications: Application[];
+  jobs: JobRecord[];
   adminUsers?: AdminUserSummary[];
 }
 
@@ -47,6 +48,7 @@ export default function ApplicationChart({
   title,
   period,
   applications,
+  jobs,
   adminUsers,
 }: ApplicationChartProps) {
   const [selectedUserId, setSelectedUserId] = useState('all');
@@ -56,11 +58,12 @@ export default function ApplicationChart({
     () =>
       buildChartData(
         applications,
+        jobs,
         period,
         undefined,
         isAdminMode && selectedUserId !== 'all' ? selectedUserId : undefined,
       ),
-    [applications, period, selectedUserId, isAdminMode],
+    [applications, jobs, period, selectedUserId, isAdminMode],
   );
 
   return (

@@ -3,6 +3,7 @@ const ATS_SITES: { id: string; label: string; pattern: RegExp }[] = [
   { id: 'lever', label: 'Lever', pattern: /lever\.co/i },
   { id: 'ashby', label: 'Ashby', pattern: /ashbyhq\.com/i },
   { id: 'workable', label: 'Workable', pattern: /workable\.com/i },
+  { id: 'applytojob', label: 'ApplyToJob', pattern: /applytojob\.com/i },
   { id: 'workday', label: 'Workday', pattern: /myworkdayjobs\.com/i },
   { id: 'icims', label: 'iCIMS', pattern: /icims\.com/i },
   { id: 'jobvite', label: 'Jobvite', pattern: /jobvite\.com/i },
@@ -19,7 +20,13 @@ const ATS_SITES: { id: string; label: string; pattern: RegExp }[] = [
 ];
 
 const AUTOBID_PATTERNS = [/greenhouse\.io/i, /myworkdayjobs\.com/i];
-const EXTENSION_PATTERNS = [/ashbyhq\.com/i, /lever\.co/i, /workable\.com/i];
+const EXTENSION_PATTERNS = [
+  /ashbyhq\.com/i,
+  /lever\.co/i,
+  /workable\.com/i,
+  /applytojob\.com/i,
+  /rippling\.com/i,
+];
 
 export type JobSiteApplyMode = 'autobid' | 'extension' | 'other';
 

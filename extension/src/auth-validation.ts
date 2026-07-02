@@ -6,6 +6,11 @@ export interface ValidatedAuthSession {
   uid: string;
 }
 
+export type ValidateAuthResult =
+  | { status: 'valid'; session: ValidatedAuthSession }
+  | { status: 'invalid' }
+  | { status: 'unavailable' };
+
 function buildHeaders(authToken: string): Record<string, string> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -37,28 +42,39 @@ export function resolveApiUrl(path: string): string {
 
 export async function validateAuthToken(
   token: string,
-): Promise<ValidatedAuthSession | null> {
-  if (!token?.trim()) return null;
+): Promise<ValidateAuthResult> {
+  if (!token?.trim()) return { status: 'invalid' };
 
   try {
     const response = await fetch(resolveApiUrl('/auth/me'), {
       headers: buildHeaders(token),
     });
 
-    if (!response.ok) return null;
+    if (response.status === 401 || response.status === 403) {
+      return { status: 'invalid' };
+    }
+
+    if (!response.ok) {
+      return { status: 'unavailable' };
+    }
 
     const data = (await response.json()) as {
       user?: { uid?: string; email?: string } | null;
     };
 
-    if (!data.user?.uid) return null;
+    if (!data.user?.uid) {
+      return { status: 'invalid' };
+    }
 
     return {
-      token,
-      email: data.user.email || '',
-      uid: data.user.uid,
+      status: 'valid',
+      session: {
+        token,
+        email: data.user.email || '',
+        uid: data.user.uid,
+      },
     };
   } catch {
-    return null;
+    return { status: 'unavailable' };
   }
 }

@@ -41,5 +41,7 @@ export interface GenerateResumeResponse {
   filePath: string;
   fileName: string;
   fileUrl: string;
+  resumeFolderName: string;
+  downloadPath: string;
   applicationAiCostUsd: number;
 }

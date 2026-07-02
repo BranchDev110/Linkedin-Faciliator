@@ -21,6 +21,14 @@ import { UploadResumeTemplateDto } from './dto/upload-resume-template.dto';
 export class ProfilesController {
   constructor(private profilesService: ProfilesService) {}
 
+  @Get('me/summary')
+  async getMeSummary(@CurrentUser() user: AuthUser) {
+    return this.profilesService.getOrCreateSummaryForUser(user.uid, {
+      email: user.email,
+      name: user.name,
+    });
+  }
+
   @Get('me')
   async getMe(@CurrentUser() user: AuthUser) {
     return this.profilesService.getOrCreateForUser(user.uid, {

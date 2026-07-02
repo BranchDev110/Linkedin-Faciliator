@@ -1,6 +1,7 @@
 const AUTH_SYNC_EVENT = 'li-facilitator-auth-sync';
 const AUTH_CLEAR_EVENT = 'li-facilitator-auth-clear';
 const AUTH_FROM_EXTENSION_EVENT = 'li-facilitator-auth-from-extension';
+const EXTENSION_SYNCED_EVENT = 'li-facilitator-extension-synced';
 const BRIDGE_DEAD_KEY = 'li_facilitator_bridge_dead';
 const TOKEN_KEY = 'li_facilitator_token';
 const EMAIL_KEY = 'li_facilitator_email';
@@ -49,29 +50,47 @@ function canUseExtensionRuntime(): boolean {
   }
 }
 
-function safeSendMessage(message: Record<string, unknown>) {
-  if (!canUseExtensionRuntime()) return;
+function safeSendMessage(
+  message: Record<string, unknown>,
+): Promise<Record<string, unknown> | undefined> {
+  if (!canUseExtensionRuntime()) {
+    return Promise.resolve(undefined);
+  }
 
   try {
-    chrome.runtime
+    return chrome.runtime
       .sendMessage(message)
-      .then(() => {
+      .then((response) => {
         tornDown = false;
         try {
           sessionStorage.removeItem(BRIDGE_DEAD_KEY);
         } catch {
           // ignore
         }
+        return response as Record<string, unknown> | undefined;
       })
       .catch(() => {
         markBridgeDead();
+        return undefined;
       });
   } catch {
     markBridgeDead();
+    return Promise.resolve(undefined);
   }
 }
 
+function dispatchExtensionSynced(success: boolean) {
+  window.dispatchEvent(
+    new CustomEvent(EXTENSION_SYNCED_EVENT, { detail: { success } }),
+  );
+}
+
 function applyExtensionAuth(token: string, email: string) {
+  const existingToken = localStorage.getItem(TOKEN_KEY);
+  if (existingToken && existingToken !== token) {
+    return;
+  }
+
   try {
     sessionStorage.removeItem(SIGNED_OUT_KEY);
   } catch {
@@ -83,46 +102,74 @@ function applyExtensionAuth(token: string, email: string) {
   window.dispatchEvent(new CustomEvent(AUTH_FROM_EXTENSION_EVENT));
 }
 
-function notifyExtensionAfterSignIn() {
-  if (!canUseExtensionRuntime()) return;
+async function validateTokenWithApi(token: string): Promise<boolean> {
+  try {
+    const response = await fetch('/auth/me', {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+    if (response.status === 401 || response.status === 403) {
+      return false;
+    }
+    if (!response.ok) {
+      return true;
+    }
+
+    const data = (await response.json()) as { user?: { uid?: string } | null };
+    return Boolean(data.user?.uid);
+  } catch {
+    return true;
+  }
+}
+
+async function notifyExtensionAfterSignIn(): Promise<boolean> {
+  if (!canUseExtensionRuntime()) return false;
 
   const token = localStorage.getItem(TOKEN_KEY);
-  const email = localStorage.getItem(EMAIL_KEY);
+  const email = localStorage.getItem(EMAIL_KEY) || '';
 
   if (!token) {
-    safeSendMessage({ type: 'LI_FACILITATOR_SIGNOUT' });
-    return;
+    return false;
   }
 
-  safeSendMessage({
+  const response = await safeSendMessage({
     type: 'SYNC_AUTH_FROM_WEB',
     token,
     email,
   });
+
+  const success = Boolean(response?.success);
+  dispatchExtensionSynced(success);
+  return success;
 }
 
 function syncExistingWebSessionToExtension() {
   const token = localStorage.getItem(TOKEN_KEY);
   if (!token || !canUseExtensionRuntime()) return;
-  notifyExtensionAfterSignIn();
+  void notifyExtensionAfterSignIn();
 }
 
-function requestAuthFromExtension() {
+async function requestAuthFromExtension() {
   if (!canUseExtensionRuntime()) return;
 
-  try {
-    chrome.runtime
-      .sendMessage({ type: 'REQUEST_AUTH_FROM_EXTENSION' })
-      .then((response: { token?: string; email?: string } | undefined) => {
-        if (!response?.token) return;
-        applyExtensionAuth(response.token, response.email || '');
-      })
-      .catch(() => {
-        markBridgeDead();
-      });
-  } catch {
-    markBridgeDead();
+  if (localStorage.getItem(TOKEN_KEY)) {
+    syncExistingWebSessionToExtension();
+    return;
   }
+
+  const response = await safeSendMessage({ type: 'REQUEST_AUTH_FROM_EXTENSION' });
+  const token = typeof response?.token === 'string' ? response.token : '';
+  if (!token) return;
+
+  const valid = await validateTokenWithApi(token);
+  if (!valid) {
+    await safeSendMessage({ type: 'CLEAR_STALE_EXTENSION_AUTH' });
+    return;
+  }
+
+  applyExtensionAuth(token, typeof response?.email === 'string' ? response.email : '');
 }
 
 function notifySignOut() {
@@ -131,7 +178,7 @@ function notifySignOut() {
 
 function onAuthSync() {
   if (isSignedOutOnWeb()) return;
-  notifyExtensionAfterSignIn();
+  void notifyExtensionAfterSignIn();
 }
 
 function onAuthClear() {
@@ -160,11 +207,11 @@ if (canUseExtensionRuntime()) {
 
   if (isSignedOutOnWeb()) {
     // Do not pull stale extension sessions into a signed-out web tab.
-  } else if (fromExtension) {
-    requestAuthFromExtension();
-  } else if (!localStorage.getItem(TOKEN_KEY)) {
-    requestAuthFromExtension();
   } else if (localStorage.getItem(TOKEN_KEY)) {
     syncExistingWebSessionToExtension();
+  } else if (fromExtension) {
+    void requestAuthFromExtension();
+  } else {
+    void requestAuthFromExtension();
   }
 }

@@ -1,5 +1,6 @@
-import { getStorage, setStorage, WEB_URL } from './shared';
+import { getStorage, setStorage, WEB_URL, apiRequest } from './shared';
 import { storageGet } from './extension-storage';
+import { validateAuthToken } from './auth-validation';
 import {
   clearAuthStorage,
   isAppWebUrl,
@@ -132,7 +133,17 @@ async function resolveAuthSession(): Promise<{ token: string; email: string } | 
   if (storage.token) {
     const validated = await persistAuthSession(storage.token, storage.email || '');
     if (validated) return validated;
-    await clearAuthStorage();
+
+    const recheck = await validateAuthToken(storage.token);
+    if (recheck.status === 'invalid') {
+      await clearAuthStorage();
+    } else if (recheck.status === 'unavailable') {
+      return {
+        token: storage.token,
+        email: storage.email || '',
+      };
+    }
+
     return null;
   }
 
@@ -235,7 +246,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         message.email || '',
       );
       if (!validated) {
-        await clearAuthStorage();
+        const recheck = await validateAuthToken(message.token);
+        if (recheck.status === 'invalid') {
+          await clearAuthStorage();
+        }
         sendResponse({ success: false });
         return;
       }
@@ -249,6 +263,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === 'LI_FACILITATOR_SIGNOUT') {
     (async () => {
       await clearWebAuthFromOpenTabs();
+      await clearAuthStorage();
+      sendResponse({ success: true });
+    })();
+    return true;
+  }
+
+  if (message.type === 'CLEAR_STALE_EXTENSION_AUTH') {
+    (async () => {
       await clearAuthStorage();
       sendResponse({ success: true });
     })();
@@ -280,6 +302,50 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         sendResponse(validated || {});
       } catch {
         sendResponse({});
+      }
+    })();
+    return true;
+  }
+
+  if (message.type === 'RESUME_FILE_SELECTED') {
+    (async () => {
+      const validated = await resolveAuthSession();
+      if (!validated?.token) {
+        sendResponse({ success: false, matched: false });
+        return;
+      }
+
+      try {
+        const result = await apiRequest<{
+          matched: boolean;
+          application: { id?: string } | null;
+        }>('/applications/resume-selection', {
+          method: 'POST',
+          token: validated.token,
+          body: JSON.stringify({
+            pageUrl: message.pageUrl,
+            resumeFolderName: message.resumeFolderName,
+            resumeFileName: message.resumeFileName,
+          }),
+        });
+
+        const tabId = _sender.tab?.id;
+        if (tabId) {
+          await chrome.storage.session.set({
+            [`resumeSelection:${tabId}`]: {
+              pageUrl: message.pageUrl,
+              resumeFolderName: message.resumeFolderName || '',
+              resumeFileName: message.resumeFileName || '',
+              matched: Boolean(result.matched),
+              applicationId: result.application?.id || '',
+              capturedAt: Date.now(),
+            },
+          });
+        }
+
+        sendResponse({ success: true, ...result });
+      } catch {
+        sendResponse({ success: false, matched: false });
       }
     })();
     return true;

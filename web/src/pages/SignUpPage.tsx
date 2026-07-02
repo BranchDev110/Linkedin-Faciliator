@@ -1,18 +1,21 @@
 import { FormEvent, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import AuthLayout from '../components/AuthLayout';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/Toast';
-import { redirectToHome } from '../lib/auth-routes';
+import { getHomePathForUser } from '../lib/auth-routes';
+import { waitForExtensionSync } from '../lib/extension-auth-sync';
 
 export default function SignUpPage() {
   const [searchParams] = useSearchParams();
   const fromExtension = searchParams.get('source') === 'extension';
+  const navigate = useNavigate();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const { signUp } = useAuth();
   const { showToast } = useToast();
 
@@ -25,12 +28,21 @@ export default function SignUpPage() {
       return;
     }
 
+    setSubmitting(true);
+
     try {
       const user = await signUp(email, password);
+
+      if (fromExtension) {
+        await waitForExtensionSync();
+      }
+
       showToast('Account created. Waiting for admin approval.');
-      redirectToHome(user, fromExtension);
+      navigate(getHomePathForUser(user, fromExtension), { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sign up failed');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -44,12 +56,12 @@ export default function SignUpPage() {
             </svg>
           </div>
           <h1>Create account</h1>
-          <p>Sign up to start tracking applications and generating resumes</p>
+          <p>Sign up to start using LI Facilitator</p>
         </div>
 
         {fromExtension && (
           <div className="auth-extension-notice">
-            Create an account to connect your Chrome extension
+            Sign up to connect your Chrome extension
           </div>
         )}
 
@@ -76,7 +88,7 @@ export default function SignUpPage() {
               required
               minLength={6}
               autoComplete="new-password"
-              placeholder="Min. 6 characters"
+              placeholder="At least 6 characters"
             />
           </div>
           <div className="form-group">
@@ -95,8 +107,8 @@ export default function SignUpPage() {
 
           {error && <p className="error-message">{error}</p>}
 
-          <button type="submit" className="btn btn-primary">
-            Sign up
+          <button type="submit" className="btn btn-primary" disabled={submitting}>
+            {submitting ? 'Creating account…' : 'Sign up'}
           </button>
         </form>
 

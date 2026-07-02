@@ -216,6 +216,11 @@ select {
   color: #b45309;
 }
 
+.badge-secondary {
+  background: #e0e7ff;
+  color: #4338ca;
+}
+
 .badge-neutral {
   background: var(--color-border-subtle);
   color: var(--color-text-secondary);

@@ -38,14 +38,43 @@ export function setTokenProvider(provider: TokenProvider) {
   tokenProvider = provider;
 }
 
+const PUBLIC_AUTH_PATHS = new Set([
+  '/auth/login',
+  '/auth/register',
+  '/auth/authenticate',
+]);
+
+function isPublicAuthRequest(path: string): boolean {
+  const normalized = path.startsWith('/') ? path : `/${path}`;
+  return PUBLIC_AUTH_PATHS.has(normalized);
+}
+
+function messageFromErrorBody(body: unknown, fallback: string): string {
+  if (!body || typeof body !== 'object') {
+    return fallback;
+  }
+
+  const message = (body as { message?: unknown }).message;
+  if (typeof message === 'string' && message.trim()) {
+    return message;
+  }
+
+  if (Array.isArray(message) && message.length > 0) {
+    return String(message[0]);
+  }
+
+  return fallback;
+}
+
 export async function apiRequest<T>(
   path: string,
   options: RequestInit & { token?: string } = {},
 ): Promise<T> {
   const { token: explicitToken, ...fetchOptions } = options;
+  const publicAuthRequest = isPublicAuthRequest(path);
 
   let token = explicitToken;
-  if (!token) {
+  if (!token && !publicAuthRequest) {
     token = (await tokenProvider()) ?? undefined;
   }
 
@@ -68,13 +97,17 @@ export async function apiRequest<T>(
     headers,
   });
 
-  if (response.status === 401) {
-    throw new Error('Session expired. Please sign in again.');
-  }
-
   if (!response.ok) {
     const error = await response.json().catch(() => ({ message: 'Request failed' }));
-    throw new Error(error.message || `HTTP ${response.status}`);
+
+    if (response.status === 401) {
+      if (publicAuthRequest) {
+        throw new Error(messageFromErrorBody(error, 'Invalid email or password'));
+      }
+      throw new Error('Session expired. Please sign in again.');
+    }
+
+    throw new Error(messageFromErrorBody(error, `HTTP ${response.status}`));
   }
 
   if (response.status === 204) {

@@ -1,6 +1,7 @@
 export const TOKEN_KEY = 'li_facilitator_token';
 export const EMAIL_KEY = 'li_facilitator_email';
 export const SIGNED_OUT_KEY = 'li_facilitator_signed_out';
+export const EXTENSION_SYNCED_EVENT = 'li-facilitator-extension-synced';
 
 export function isSignedOutFlagSet(): boolean {
   try {
@@ -19,19 +20,11 @@ export function hasStoredAuthToken(): boolean {
 }
 
 export function shouldRestoreStoredSession(): boolean {
-  if (!hasStoredAuthToken()) {
+  if (isSignedOutFlagSet()) {
     return false;
   }
 
-  if (isSignedOutFlagSet()) {
-    try {
-      sessionStorage.removeItem(SIGNED_OUT_KEY);
-    } catch {
-      // ignore
-    }
-  }
-
-  return true;
+  return hasStoredAuthToken();
 }
 
 export function isAuthPath(pathname: string): boolean {

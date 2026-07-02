@@ -7,6 +7,14 @@ import { GenerateResumeBulletsResponse } from './dto/generate-bullets.dto';
 import { usageFromCompletion } from '../openai/openai-cost.util';
 import { resolveOpenAiModel } from '../openai/openai-model.util';
 import { OpenAiUsageRecord } from '../openai/openai-usage.types';
+import {
+  CompanyBulletRequest,
+  findIncompleteCompanyRequests,
+  mergeCompanyBulletResults,
+  normalizeCompanyBulletResults,
+} from './resume-bullet.util';
+
+const MAX_BULLET_GENERATION_ATTEMPTS = 4;
 
 @Injectable()
 export class ResumeBulletService {
@@ -49,6 +57,13 @@ export class ResumeBulletService {
       };
     });
 
+    const companyRequests: CompanyBulletRequest[] = requests.map(
+      ({ company, bulletCount }) => ({
+        companyName: company.name,
+        bulletCount,
+      }),
+    );
+
     if (!this.openai) {
       this.logger.warn('OPENAI_API_KEY not set; returning empty bullets');
       return {
@@ -61,149 +76,68 @@ export class ResumeBulletService {
       };
     }
 
-    const candidateName = [profile.firstName, profile.lastName]
-      .filter(Boolean)
-      .join(' ')
-      .trim();
+    let results = await this.requestBatchBullets(profile, skills, requests, options);
+    let usage = results.usage;
 
-    const companyRequirements = requests
-      .map(
-        ({ company, bulletCount }) =>
-          `- ${company.name}: exactly ${bulletCount} bullet${bulletCount === 1 ? '' : 's'}`,
-      )
-      .join('\n');
-
-    const companyInstructions = requests
-      .map(
-        ({ company }) =>
-          `${company.name} instructions:\n${company.prompt || '(none provided)'}`,
-      )
-      .join('\n\n');
-
-    const systemPrompt = `You are an expert resume writer. Write tailored resume bullet points for multiple past employers in one response.
-
-Rules:
-1. Return valid JSON only with this shape: {"companies":[{"company":"Company Name","bullets":["bullet one","bullet two"]}]}
-2. Include every requested company exactly once, using the exact company name provided
-3. Generate exactly the requested number of bullets for each company
-4. Each bullet should be one concise line, start with a strong action verb, and include measurable impact when possible
-5. Follow the general resume instructions and each company's specific instructions
-6. Align bullets with the extracted target job skills
-7. Do not fabricate impossible metrics; reframe experience credibly for the target role
-8. Do not repeat the same bullet wording across companies`;
-
-    const userPrompt = [
-      'Generate resume bullets for all companies listed below.',
-      '',
-      'Bullet counts per company:',
-      companyRequirements,
-      '',
-      candidateName ? `Candidate: ${candidateName}` : '',
-      profile.profileName ? `Profile: ${profile.profileName}` : '',
-      '',
-      'General resume instructions (apply to every bullet):',
-      profile.generalPrompt || '(none provided)',
-      '',
-      'Company-specific instructions:',
-      companyInstructions,
-      '',
-      'Target job:',
-      options.targetJobTitle
-        ? `Title: ${options.targetJobTitle}`
-        : skills.title
-          ? `Title: ${skills.title}`
-          : '',
-      options.targetJobCompany
-        ? `Company: ${options.targetJobCompany}`
-        : skills.companyName
-          ? `Company: ${skills.companyName}`
-          : '',
-      skills.role ? `Role: ${skills.role}` : '',
-      skills.focus ? `Focus: ${skills.focus}` : '',
-      '',
-      'Extracted skills JSON:',
-      JSON.stringify(skills, null, 2),
-      '',
-      options.jobDescription
-        ? `Job description:\n${options.jobDescription}`
-        : '',
-    ]
-      .filter(Boolean)
-      .join('\n');
-
-    try {
-      const model = resolveOpenAiModel(
-        this.configService.get<string>('OPENAI_MODEL'),
-      );
-      const completion = await this.openai.chat.completions.create({
-        model,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
-        temperature: 0.4,
-        response_format: { type: 'json_object' },
-      });
-
-      const content = completion.choices[0]?.message?.content;
-      const usage = usageFromCompletion(model, completion.usage);
-
-      if (!content) {
-        return {
-          results: requests.map(({ company, bulletCount }) => ({
-            company: company.name,
-            bullets: Array(bulletCount).fill(''),
-            costUsd: 0,
-          })),
-          usage,
-        };
-      }
-
-      const parsed = JSON.parse(content) as {
-        companies?: { company?: string; bullets?: string[] }[];
-      };
-      const byCompany = new Map(
-        (parsed.companies || []).map((entry) => [
-          String(entry.company || '').trim(),
-          entry.bullets || [],
-        ]),
+    for (let attempt = 1; attempt <= MAX_BULLET_GENERATION_ATTEMPTS; attempt += 1) {
+      const incomplete = findIncompleteCompanyRequests(
+        companyRequests,
+        results.results,
       );
 
-      const results = requests.map(({ company, bulletCount }) => {
-        const rawBullets = byCompany.get(company.name) || [];
-        const bullets = rawBullets
-          .map((bullet) => bullet.trim())
-          .filter(Boolean)
-          .slice(0, bulletCount);
-
-        while (bullets.length < bulletCount) {
-          bullets.push('');
-        }
-
-        return {
-          company: company.name,
-          bullets,
-          costUsd: 0,
-        };
-      });
-
-      const costUsd = usage?.costUsd ?? 0;
-      if (costUsd > 0 && results.length > 0) {
-        results[0].costUsd = costUsd;
+      if (incomplete.length === 0) {
+        break;
       }
 
-      return { results, usage };
-    } catch (error) {
-      this.logger.error('OpenAI batch resume bullet generation failed', error);
-      return {
-        results: requests.map(({ company, bulletCount }) => ({
-          company: company.name,
-          bullets: Array(bulletCount).fill(''),
-          costUsd: 0,
-        })),
-        usage: null,
+      if (attempt === MAX_BULLET_GENERATION_ATTEMPTS) {
+        this.logger.warn(
+          `Resume bullets still incomplete after ${MAX_BULLET_GENERATION_ATTEMPTS} attempts for: ${incomplete.map((entry) => entry.companyName).join(', ')}`,
+        );
+        break;
+      }
+
+      this.logger.log(
+        `Retrying resume bullets (${attempt}/${MAX_BULLET_GENERATION_ATTEMPTS - 1}) for: ${incomplete.map((entry) => entry.companyName).join(', ')}`,
+      );
+
+      const retryResults: GenerateResumeBulletsResponse[] = [];
+      for (const request of incomplete) {
+        const single = await this.generateBulletsForCompany(
+          profile,
+          request.companyName,
+          skills,
+          {
+            bulletCount: request.bulletCount,
+            jobDescription: options.jobDescription,
+            targetJobCompany: options.targetJobCompany,
+            targetJobTitle: options.targetJobTitle,
+          },
+        );
+
+        retryResults.push(single);
+        usage = this.mergeUsage(usage, single.usage ?? null);
+      }
+
+      results = {
+        results: mergeCompanyBulletResults(results.results, retryResults),
+        usage,
       };
     }
+
+    const normalizedResults = normalizeCompanyBulletResults(
+      companyRequests,
+      results.results,
+    );
+    const costUsd = usage?.costUsd ?? 0;
+
+    return {
+      results: normalizedResults.map((result, index) => ({
+        company: result.company,
+        bullets: result.bullets,
+        costUsd: index === 0 ? costUsd : 0,
+      })),
+      usage,
+    };
   }
 
   async generateBulletsForCompany(
@@ -327,6 +261,175 @@ Rules:
         costUsd: 0,
       };
     }
+  }
+
+  private async requestBatchBullets(
+    profile: Profile,
+    skills: ApplicationSkills,
+    requests: { company: ProfileCompany; bulletCount: number }[],
+    options: {
+      jobDescription?: string;
+      targetJobCompany?: string;
+      targetJobTitle?: string;
+    },
+  ): Promise<{
+    results: GenerateResumeBulletsResponse[];
+    usage: OpenAiUsageRecord | null;
+  }> {
+    const candidateName = [profile.firstName, profile.lastName]
+      .filter(Boolean)
+      .join(' ')
+      .trim();
+
+    const companyRequirements = requests
+      .map(
+        ({ company, bulletCount }) =>
+          `- ${company.name}: exactly ${bulletCount} bullet${bulletCount === 1 ? '' : 's'}`,
+      )
+      .join('\n');
+
+    const companyInstructions = requests
+      .map(
+        ({ company }) =>
+          `${company.name} instructions:\n${company.prompt || '(none provided)'}`,
+      )
+      .join('\n\n');
+
+    const systemPrompt = `You are an expert resume writer. Write tailored resume bullet points for multiple past employers in one response.
+
+Rules:
+1. Return valid JSON only with this shape: {"companies":[{"company":"Company Name","bullets":["bullet one","bullet two"]}]}
+2. Include every requested company exactly once, using the exact company name provided
+3. Generate exactly the requested number of bullets for each company
+4. Each bullet should be one concise line, start with a strong action verb, and include measurable impact when possible
+5. Follow the general resume instructions and each company's specific instructions
+6. Align bullets with the extracted target job skills
+7. Do not fabricate impossible metrics; reframe experience credibly for the target role
+8. Do not repeat the same bullet wording across companies`;
+
+    const userPrompt = [
+      'Generate resume bullets for all companies listed below.',
+      '',
+      'Bullet counts per company:',
+      companyRequirements,
+      '',
+      candidateName ? `Candidate: ${candidateName}` : '',
+      profile.profileName ? `Profile: ${profile.profileName}` : '',
+      '',
+      'General resume instructions (apply to every bullet):',
+      profile.generalPrompt || '(none provided)',
+      '',
+      'Company-specific instructions:',
+      companyInstructions,
+      '',
+      'Target job:',
+      options.targetJobTitle
+        ? `Title: ${options.targetJobTitle}`
+        : skills.title
+          ? `Title: ${skills.title}`
+          : '',
+      options.targetJobCompany
+        ? `Company: ${options.targetJobCompany}`
+        : skills.companyName
+          ? `Company: ${skills.companyName}`
+          : '',
+      skills.role ? `Role: ${skills.role}` : '',
+      skills.focus ? `Focus: ${skills.focus}` : '',
+      '',
+      'Extracted skills JSON:',
+      JSON.stringify(skills, null, 2),
+      '',
+      options.jobDescription
+        ? `Job description:\n${options.jobDescription}`
+        : '',
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    try {
+      const model = resolveOpenAiModel(
+        this.configService.get<string>('OPENAI_MODEL'),
+      );
+      const completion = await this.openai!.chat.completions.create({
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        temperature: 0.4,
+        response_format: { type: 'json_object' },
+      });
+
+      const content = completion.choices[0]?.message?.content;
+      const usage = usageFromCompletion(model, completion.usage);
+
+      if (!content) {
+        return {
+          results: requests.map(({ company, bulletCount }) => ({
+            company: company.name,
+            bullets: Array(bulletCount).fill(''),
+            costUsd: 0,
+          })),
+          usage,
+        };
+      }
+
+      const parsed = JSON.parse(content) as {
+        companies?: { company?: string; bullets?: string[] }[];
+      };
+      const byCompany = new Map(
+        (parsed.companies || []).map((entry) => [
+          String(entry.company || '').trim(),
+          entry.bullets || [],
+        ]),
+      );
+
+      const results = requests.map(({ company, bulletCount }) => {
+        const rawBullets = byCompany.get(company.name) || [];
+        const bullets = rawBullets
+          .map((bullet) => bullet.trim())
+          .filter(Boolean)
+          .slice(0, bulletCount);
+
+        while (bullets.length < bulletCount) {
+          bullets.push('');
+        }
+
+        return {
+          company: company.name,
+          bullets,
+          costUsd: 0,
+        };
+      });
+
+      return { results, usage };
+    } catch (error) {
+      this.logger.error('OpenAI batch resume bullet generation failed', error);
+      return {
+        results: requests.map(({ company, bulletCount }) => ({
+          company: company.name,
+          bullets: Array(bulletCount).fill(''),
+          costUsd: 0,
+        })),
+        usage: null,
+      };
+    }
+  }
+
+  private mergeUsage(
+    total: OpenAiUsageRecord | null | undefined,
+    next: OpenAiUsageRecord | null | undefined,
+  ): OpenAiUsageRecord | null {
+    if (!next) return total ?? null;
+    if (!total) return next;
+
+    return {
+      model: next.model || total.model,
+      promptTokens: total.promptTokens + next.promptTokens,
+      completionTokens: total.completionTokens + next.completionTokens,
+      totalTokens: total.totalTokens + next.totalTokens,
+      costUsd: total.costUsd + next.costUsd,
+    };
   }
 
   private parseResponse(

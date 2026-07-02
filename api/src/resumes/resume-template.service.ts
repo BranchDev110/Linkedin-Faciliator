@@ -3,6 +3,7 @@ import Docxtemplater from 'docxtemplater';
 import { ApplicationSkills } from '../applications/dto/application.dto';
 import { CompanyBulletInput } from './resume-content.service';
 import { prepareDocxTemplateForRendering } from './docx-placeholder-fix';
+import { splitListParagraphsInDocxZip } from './docx-list-split';
 
 @Injectable()
 export class ResumeTemplateService {
@@ -33,11 +34,12 @@ export class ResumeTemplateService {
     );
 
     data.companyBullets.forEach((entry, index) => {
-      const formatted = this.formatBullets(entry.bullets);
+      const formatted = this.formatBulletsForText(entry.bullets);
       const experienceIndex = index + 1;
 
       result = this.replaceToken(result, `exp${experienceIndex}`, formatted);
       result = this.replaceToken(result, `exp${experienceIndex}_bullets`, formatted);
+      result = this.replaceToken(result, `exp_bullet${experienceIndex}`, formatted);
       result = this.replaceCompanyTokens(result, entry.company, formatted);
     });
 
@@ -63,6 +65,7 @@ export class ResumeTemplateService {
     });
 
     doc.render(this.buildDocxRenderData(data));
+    splitListParagraphsInDocxZip(doc.getZip());
     return doc.getZip().generate({ type: 'nodebuffer' });
   }
 
@@ -87,12 +90,13 @@ export class ResumeTemplateService {
     };
 
     data.companyBullets.forEach((entry, index) => {
-      const formatted = this.formatBullets(entry.bullets);
+      const formatted = this.formatBulletsForDocx(entry.bullets);
       const experienceIndex = index + 1;
       const experienceKey = `exp${experienceIndex}`;
 
       renderData[experienceKey] = formatted;
       renderData[`${experienceKey}_bullets`] = formatted;
+      renderData[`exp_bullet${experienceIndex}`] = formatted;
       renderData[entry.company] = formatted;
       renderData[`company:${entry.company}`] = formatted;
     });
@@ -100,13 +104,21 @@ export class ResumeTemplateService {
     return renderData;
   }
 
-  private formatBullets(text: string): string {
+  private normalizeBulletLines(text: string): string[] {
     return text
       .split('\n')
       .map((line) => line.trim().replace(/^[-•*–—]\s*/, ''))
-      .filter(Boolean)
+      .filter(Boolean);
+  }
+
+  private formatBulletsForText(text: string): string {
+    return this.normalizeBulletLines(text)
       .map((line) => `- ${line}`)
       .join('\n');
+  }
+
+  private formatBulletsForDocx(text: string): string {
+    return this.normalizeBulletLines(text).join('\n');
   }
 
   private replaceToken(

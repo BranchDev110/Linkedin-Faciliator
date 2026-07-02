@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "LI Facilitator",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "Extract LinkedIn job details and generate tailored resumes with AI",
   "permissions": [
     "storage",
@@ -34,6 +34,15 @@
     "type": "module"
   },
   "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": ["file-select-hook.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    },
     {
       "matches": [
         "https://www.linkedin.com/*",

@@ -40,7 +40,7 @@ export class FileStorageService {
     fileName: string,
     content: Buffer | string,
   ): string {
-    const safeName = this.sanitizeFileName(fileName);
+    const safeName = this.sanitizeResumeFileName(fileName);
     const relativePath = join('resumes', userId, resumeId, safeName);
     if (typeof content === 'string') {
       this.writeText(relativePath, content);
@@ -77,5 +77,9 @@ export class FileStorageService {
 
   private sanitizeFileName(fileName: string): string {
     return fileName.replace(/[^a-zA-Z0-9._-]/g, '_') || 'file';
+  }
+
+  private sanitizeResumeFileName(fileName: string): string {
+    return fileName.trim().replace(/[\\/:*?"<>|]/g, '_') || 'resume.docx';
   }
 }

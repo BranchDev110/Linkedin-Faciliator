@@ -22,9 +22,15 @@ import {
   ExtractApplicationSkillsResponse,
 } from './dto/extract-skills.dto';
 import { JdSkillExtractionService } from './jd-skill-extraction.service';
-import { JobRecord, JobsService } from '../jobs/jobs.service';
+import { JobRecord, JobSummary, JobsService } from '../jobs/jobs.service';
 import { normalizeApplicationStatus } from './application-status.util';
 import { resolveLinkedInJobId } from './linkedin-job-id.util';
+import { urlsLikelyMatch } from './application-url-match.util';
+import { RecordResumeSelectionDto } from './dto/record-resume-selection.dto';
+import {
+  resolveApplicationResumeFileName,
+  resolveApplicationResumeFolder,
+} from '../resumes/resume-folder.util';
 import {
   mergeCostBreakdown,
   normalizeAiCostBreakdown,
@@ -50,6 +56,8 @@ type LegacyApplicationFields = {
   location?: string;
   companyLogoUrl?: string;
   resumeId?: string;
+  resumeFolderName?: string;
+  resumeFileName?: string;
 };
 
 @Injectable()
@@ -66,9 +74,21 @@ export class ApplicationsService {
     const docs = await this.applicationModel
       .find({ userId })
       .sort({ createdAt: -1 })
+      .lean()
       .exec();
 
-    return this.mapDocuments(docs);
+    return this.mapDocuments(docs as ApplicationDocument[]);
+  }
+
+  async findAllSummariesByUser(userId: string): Promise<Application[]> {
+    const docs = await this.applicationModel
+      .find({ userId })
+      .select('-companyBullets')
+      .sort({ createdAt: -1 })
+      .lean()
+      .exec();
+
+    return this.mapDocuments(docs as ApplicationDocument[], { summary: true });
   }
 
   async findOne(userId: string, applicationId: string): Promise<Application> {
@@ -201,7 +221,10 @@ export class ApplicationsService {
     return profile.id;
   }
 
-  async mapDocuments(docs: ApplicationDocument[]): Promise<Application[]> {
+  async mapDocuments(
+    docs: ApplicationDocument[],
+    options?: { summary?: boolean },
+  ): Promise<Application[]> {
     if (!docs.length) {
       return [];
     }
@@ -211,13 +234,20 @@ export class ApplicationsService {
       .filter((doc) => !doc.jobId?.trim() && doc.linkedInJobId?.trim())
       .map((doc) => doc.linkedInJobId.trim());
 
-    const [jobsById, jobsByLinkedInId] = await Promise.all([
-      this.jobsService.findByIds(jobIds),
-      this.jobsService.findByLinkedInJobIds(linkedInJobIds),
-    ]);
+    const [jobsById, jobsByLinkedInId] = options?.summary
+      ? await Promise.all([
+          this.jobsService.findSummariesByIds(jobIds),
+          this.jobsService.findSummariesByLinkedInJobIds(linkedInJobIds),
+        ])
+      : await Promise.all([
+          this.jobsService.findByIds(jobIds),
+          this.jobsService.findByLinkedInJobIds(linkedInJobIds),
+        ]);
 
     return docs.map((doc) => {
-      const data = doc.toObject() as LegacyApplicationFields & ApplicationDocument;
+      const data = (
+        'toObject' in doc ? doc.toObject() : doc
+      ) as LegacyApplicationFields & ApplicationDocument;
       const job =
         (doc.jobId?.trim() ? jobsById.get(doc.jobId.trim()) : undefined) ||
         (doc.linkedInJobId?.trim()
@@ -225,7 +255,10 @@ export class ApplicationsService {
           : undefined) ||
         null;
 
-      return this.toApplication(doc._id.toString(), data, job);
+      const id = doc._id.toString();
+      return options?.summary
+        ? this.toApplicationSummary(id, data, job as JobSummary | null)
+        : this.toApplication(id, data, job as JobRecord | null);
     });
   }
 
@@ -483,6 +516,70 @@ export class ApplicationsService {
     return updated;
   }
 
+  async recordResumeFileSelection(
+    userId: string,
+    dto: RecordResumeSelectionDto,
+  ): Promise<{ matched: boolean; application: Application | null }> {
+    const pageUrl = dto.pageUrl.trim();
+    if (!pageUrl) {
+      return { matched: false, application: null };
+    }
+
+    let targetId = dto.applicationId?.trim() || '';
+    if (!targetId && (dto.jobId?.trim() || dto.linkedInJobId?.trim())) {
+      const matched = await this.findByJobAndProfile(
+        userId,
+        undefined,
+        {
+          jobId: dto.jobId,
+          linkedInJobId: dto.linkedInJobId,
+        },
+      );
+      targetId = matched?.id || '';
+    }
+
+    if (!targetId) {
+      const applications = await this.findAllSummariesByUser(userId);
+      const matchedByUrl = applications.find((application) =>
+        urlsLikelyMatch(pageUrl, application.realJobUrl || ''),
+      );
+      targetId = matchedByUrl?.id || '';
+    }
+
+    if (!targetId) {
+      return { matched: false, application: null };
+    }
+
+    const updates: Record<string, string> = {
+      updatedAt: new Date().toISOString(),
+    };
+
+    const resumeFolderName = dto.resumeFolderName?.trim();
+    if (resumeFolderName) {
+      updates.resumeFolderName = resumeFolderName;
+    }
+
+    const resumeFileName = dto.resumeFileName?.trim();
+    if (resumeFileName) {
+      updates.resumeFileName = resumeFileName;
+    }
+
+    if (!updates.resumeFolderName && !updates.resumeFileName) {
+      return { matched: false, application: null };
+    }
+
+    const doc = await this.applicationModel
+      .findOneAndUpdate({ _id: targetId, userId }, updates, { new: true })
+      .exec();
+
+    if (!doc) {
+      return { matched: false, application: null };
+    }
+
+    const [application] = await this.mapDocuments([doc]);
+    return { matched: true, application };
+  }
+
   async extractSkills(
     userId: string,
     dto: ExtractApplicationSkillsDto,
@@ -728,12 +825,29 @@ export class ApplicationsService {
     return aiCostUsd;
   }
 
-  async updateResumeGenerated(applicationId: string, resumeUrl: string) {
-    await this.applicationModel.findByIdAndUpdate(applicationId, {
+  async updateResumeGenerated(
+    applicationId: string,
+    resumeUrl: string,
+    metadata?: {
+      resumeFolderName?: string;
+      resumeFileName?: string;
+    },
+  ) {
+    const updates: Record<string, string> = {
       resumeUrl,
       status: 'resume_generated',
       updatedAt: new Date().toISOString(),
-    });
+    };
+
+    if (metadata?.resumeFolderName?.trim()) {
+      updates.resumeFolderName = metadata.resumeFolderName.trim();
+    }
+
+    if (metadata?.resumeFileName?.trim()) {
+      updates.resumeFileName = metadata.resumeFileName.trim();
+    }
+
+    await this.applicationModel.findByIdAndUpdate(applicationId, updates);
   }
 
   private parseSkillsArrays(skills: ApplicationSkills) {
@@ -744,6 +858,34 @@ export class ApplicationsService {
       competencies: this.jdSkillExtractionService.parseSkillString(
         skills.competencies,
       ),
+    };
+  }
+
+  private toApplicationSummary(
+    id: string,
+    data: LegacyApplicationFields & {
+      userId: string;
+      profileId: string;
+      jobId?: string;
+      linkedInJobId?: string;
+      companyBullets?: { company: string; bullets: string }[];
+      status?: string;
+      resumeUrl?: string;
+      aiCostUsd?: number;
+      aiCostBreakdown?: Record<string, number>;
+      createdAt: string;
+      appliedAt?: string;
+      updatedAt: string;
+    },
+    job: JobSummary | null,
+  ): Application {
+    const application = this.toApplication(id, data, job as JobRecord | null);
+
+    return {
+      ...application,
+      jobDescription: '',
+      skills: undefined,
+      companyBullets: [],
     };
   }
 
@@ -776,6 +918,17 @@ export class ApplicationsService {
       | ApplicationSkills
       | undefined;
 
+    const resumeUrl = data.resumeUrl?.trim() || undefined;
+    const resumeFolderName = resolveApplicationResumeFolder({
+      id,
+      resumeUrl,
+      resumeFolderName: data.resumeFolderName,
+    });
+    const resumeFileName = resolveApplicationResumeFileName({
+      resumeUrl,
+      resumeFileName: data.resumeFileName,
+    });
+
     return {
       id,
       userId: data.userId,
@@ -803,7 +956,9 @@ export class ApplicationsService {
           }))
         : [],
       status: normalizeApplicationStatus(data.status),
-      resumeUrl: data.resumeUrl?.trim() || undefined,
+      resumeUrl,
+      resumeFolderName: resumeFolderName || undefined,
+      resumeFileName: resumeFileName || undefined,
       aiCostBreakdown: normalizeAiCostBreakdown(data.aiCostBreakdown),
       aiCostUsd: sumTrackedAiCostUsd(data.aiCostBreakdown),
       createdAt: data.createdAt,

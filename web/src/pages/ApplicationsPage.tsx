@@ -3,7 +3,16 @@ import { useAuthScope } from '../hooks/useAuthScope';
 import ResumeViewerModal from '../components/ResumeViewerModal';
 import DisabledButtonWithTooltip from '../components/DisabledButtonWithTooltip';
 import { useToast } from '../components/Toast';
+import { apiRequest } from '../lib/api';
 import { exportSelectedApplications } from '../lib/application-export';
+import {
+  applicationNeedsDetail,
+  fetchApplicationDetail,
+  fetchApplicationDetails,
+  fetchApplicationSummaries,
+  fetchProfileSummary,
+  upsertApplicationInCache,
+} from '../lib/app-data-cache';
 import {
   applicationHasResume,
   applicationCanMarkApplied,
@@ -25,7 +34,6 @@ import {
   sortFieldLabel,
   SortDirection,
 } from '../lib/application-sort';
-import { apiRequest } from '../lib/api';
 import {
   classifyJobSiteApplyMode,
   extractRealJdSite,
@@ -329,6 +337,7 @@ export default function ApplicationsPage() {
     title: string;
   } | null>(null);
   const selectionAnchorRef = useRef<number | null>(null);
+  const loadedApplicationDetailsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     setApplications([]);
@@ -337,50 +346,70 @@ export default function ApplicationsPage() {
     setSelectedIds(new Set());
     setViewingResume(null);
     setProfileLoading(true);
+    loadedApplicationDetailsRef.current = new Set();
   }, [userId]);
 
-  const loadApplications = useCallback(async () => {
-    if (!token || !userId) {
-      setApplications([]);
-      setLoading(false);
+  const loadPageData = useCallback(
+    async (force = false) => {
+      if (!token || !userId) {
+        setApplications([]);
+        setProfile(null);
+        setLoading(false);
+        setProfileLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      setProfileLoading(true);
+      try {
+        const [applicationsData, profileData] = await Promise.all([
+          fetchApplicationSummaries(token, userId, { force }),
+          fetchProfileSummary(token, userId, { force }),
+        ]);
+        setApplications(applicationsData);
+        setProfile(profileData);
+      } catch {
+        setApplications([]);
+        setProfile(null);
+      } finally {
+        setLoading(false);
+        setProfileLoading(false);
+      }
+    },
+    [token, userId],
+  );
+
+  useEffect(() => {
+    void loadPageData();
+  }, [loadPageData]);
+
+  useEffect(() => {
+    if (!expanded || !token || !userId) {
       return;
     }
 
-    setLoading(true);
-    try {
-      const data = await apiRequest<Application[]>('/applications', { token });
-      setApplications(data);
-    } catch {
-      setApplications([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [token, userId]);
-
-  useEffect(() => {
-    void loadApplications();
-  }, [loadApplications]);
-
-  const loadProfile = useCallback(async () => {
-    if (!token || !userId) {
-      setProfile(null);
-      setProfileLoading(false);
+    if (loadedApplicationDetailsRef.current.has(expanded)) {
       return;
     }
 
-    setProfileLoading(true);
-    try {
-      setProfile(await loadUserProfile(token));
-    } catch {
-      setProfile(null);
-    } finally {
-      setProfileLoading(false);
-    }
-  }, [token, userId]);
+    let cancelled = false;
 
-  useEffect(() => {
-    void loadProfile();
-  }, [loadProfile]);
+    void fetchApplicationDetail(token, expanded, userId)
+      .then((detail) => {
+        if (cancelled) return;
+        loadedApplicationDetailsRef.current.add(expanded);
+        setApplications((previous) =>
+          previous.map((app) => (app.id === detail.id ? { ...app, ...detail } : app)),
+        );
+      })
+      .catch(() => {
+        // Ignore detail fetch errors; summary data still renders.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [expanded, token, userId]);
 
   const filtered = useMemo(() => {
     return applications.filter((app) => {
@@ -545,10 +574,17 @@ export default function ApplicationsPage() {
 
     setExporting(true);
     try {
-      const currentProfile = profile || (await loadUserProfile(token));
+      const [currentProfile, exportApplications] = await Promise.all([
+        profile ? Promise.resolve(profile) : loadUserProfile(token),
+        fetchApplicationDetails(
+          token,
+          selectedApps.map((app) => app.id),
+          userId!,
+        ),
+      ]);
 
       const result = await exportSelectedApplications(
-        selectedApps,
+        exportApplications,
         [currentProfile],
         token,
       );
@@ -577,11 +613,16 @@ export default function ApplicationsPage() {
     setGenerating(true);
     setGenerateMessage('');
     try {
-      const currentProfile = profile || (await loadUserProfile(token));
+      const [currentProfile, fullApplication] = await Promise.all([
+        loadUserProfile(token),
+        applicationNeedsDetail(selectedGeneratableApp)
+          ? fetchApplicationDetail(token, selectedGeneratableApp.id, userId!)
+          : Promise.resolve(selectedGeneratableApp),
+      ]);
       setProfile(currentProfile);
 
       const result = await generateResumeFromApplication(
-        selectedGeneratableApp,
+        fullApplication,
         currentProfile,
         token,
         setGenerateMessage,
@@ -591,6 +632,9 @@ export default function ApplicationsPage() {
         const others = previous.filter((app) => app.id !== result.application.id);
         return [result.application, ...others];
       });
+      if (userId) {
+        upsertApplicationInCache(result.application, userId);
+      }
 
       showToast('Resume generated and saved to your applications.', 'success');
     } catch (err) {
@@ -627,6 +671,9 @@ export default function ApplicationsPage() {
       setApplications((previous) =>
         previous.map((app) => updatedById.get(app.id) || app),
       );
+      if (userId) {
+        updated.forEach((application) => upsertApplicationInCache(application, userId));
+      }
 
       showToast(
         `Marked ${updated.length} application${updated.length !== 1 ? 's' : ''} as applied.`,
@@ -690,7 +737,7 @@ export default function ApplicationsPage() {
               ))}
             </div>
             <p className="control-group-hint">
-              Autobid: Greenhouse, Workday · Extension: Ashby, Lever, Workable · Other: remaining sites
+              Autobid: Greenhouse, Workday · Extension: Ashby, Lever, Workable, ApplyToJob, Rippling · Other: remaining sites
             </p>
           </div>
 

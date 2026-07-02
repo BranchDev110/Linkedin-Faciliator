@@ -1,7 +1,8 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { AdminGuard } from '../auth/admin.guard';
 import { ApprovedGuard } from '../auth/approved.guard';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { RecordJobDto } from './dto/record-job.dto';
 import { JobsService } from './jobs.service';
 
 @Controller('jobs')
@@ -11,7 +12,17 @@ export class JobsController {
 
   @Get()
   async list() {
-    return this.jobsService.findAll();
+    return this.jobsService.findAllSummaries();
+  }
+
+  @Post('record')
+  async record(@Body() dto: RecordJobDto) {
+    return this.jobsService.recordMetadata(dto);
+  }
+
+  @Get('record/:id')
+  async getByRecordId(@Param('id') id: string) {
+    return this.jobsService.findById(id);
   }
 
   @Get('lookup')
@@ -20,12 +31,19 @@ export class JobsController {
       return null;
     }
 
-    const skills = await this.jobsService.findByLinkedInJobId(linkedInJobId);
-    if (!skills) {
+    const result = await this.jobsService.lookupByLinkedInJobId(linkedInJobId);
+    if (!result?.found) {
       return null;
     }
 
-    return { skills, fromCache: true };
+    if (result.hasSkills && result.skills) {
+      return {
+        ...result,
+        fromCache: true,
+      };
+    }
+
+    return result;
   }
 
   @Get(':linkedInJobId')

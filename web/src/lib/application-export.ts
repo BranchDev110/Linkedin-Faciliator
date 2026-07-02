@@ -1,12 +1,16 @@
 import JSZip from 'jszip';
 import {
   fetchAuthenticatedFile,
-  fileNameFromDownloadUrl,
   filePathFromDownloadUrl,
 } from './api';
 import { extractRealJdSite, classifyJobSiteApplyMode } from './real-jd-site';
 import { normalizeApplicationStatus } from './application-status';
 import { applicationHasResume } from './application-lookup';
+import {
+  getResumeDownloadPath,
+  resolveApplicationResumeFileName,
+  resolveApplicationResumeFolder,
+} from './resume-naming';
 import { Application, Profile } from '../types';
 
 export interface ExportApplicationItem {
@@ -23,6 +27,7 @@ export interface ExportApplicationItem {
   applyMode: 'autobid' | 'extension' | 'other';
   resumeFolderName: string;
   resumeFileName: string;
+  resumeDownloadPath: string;
   resumeUrl?: string;
   location?: string;
   companyLogoUrl?: string;
@@ -46,18 +51,15 @@ export function getProfileDocxFileName(profileName: string): string {
   return `${sanitizeFileStem(profileName)}.docx`;
 }
 
-function getResumeFolderName(resumeUrl?: string): string {
-  if (!resumeUrl) return '';
-  const fileName = fileNameFromDownloadUrl(resumeUrl);
-  return fileName.replace(/\.docx$/i, '');
-}
-
 function buildExportItem(
   app: Application,
   profile: Profile | undefined,
 ): ExportApplicationItem {
   const profileName = profile?.profileName || 'Profile';
-  const resumeFolderName = getResumeFolderName(app.resumeUrl);
+  const resumeFolderName = resolveApplicationResumeFolder(app);
+  const resumeFileName = profile
+    ? resolveApplicationResumeFileName(app, profile)
+    : app.resumeFileName || '';
   const realJobUrl = app.realJobUrl || '';
 
   return {
@@ -73,7 +75,12 @@ function buildExportItem(
     realJdSite: extractRealJdSite(realJobUrl),
     applyMode: classifyJobSiteApplyMode(realJobUrl),
     resumeFolderName,
-    resumeFileName: resumeFolderName ? getProfileDocxFileName(profileName) : '',
+    resumeFileName,
+    resumeDownloadPath: profile
+      ? getResumeDownloadPath(profile, resumeFolderName, resumeFileName)
+      : resumeFolderName
+        ? `${resumeFolderName}/${resumeFileName}`
+        : resumeFileName,
     resumeUrl: app.resumeUrl,
     location: app.location,
     companyLogoUrl: app.companyLogoUrl,

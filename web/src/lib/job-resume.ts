@@ -1,11 +1,23 @@
 import { apiRequest } from './api';
 import {
+  cacheJobDetail,
+  fetchJobDetail,
+  invalidateJobDetailCache,
+} from './app-data-cache';
+import {
   normalizeApplicationResponse,
   resolveApplicationId,
   unwrapApplicationLookup,
 } from './application-lookup';
+import { jobHasExtractedSkills, jobHasRecordedJd } from './job-filters';
 import { profileHasResumeTemplate } from './profile-template';
+import {
+  areCompanyBulletsComplete,
+  getIncompleteCompanyNames,
+} from './resume-bullets';
 import { Application, JobRecord, Profile } from '../types';
+
+const MAX_CLIENT_BULLET_ATTEMPTS = 2;
 
 type ResumeSkills = NonNullable<Application['skills']>;
 
@@ -187,6 +199,7 @@ export interface GenerateJobResumeResult {
   application: Application;
   fileUrl: string;
   fileName: string;
+  downloadPath: string;
 }
 
 export async function generateResumeFromJob(
@@ -216,23 +229,49 @@ export async function generateResumeFromJob(
   }
 
   onProgress?.('Generating resume bullets...');
-  const bulletsResponse = await apiRequest<{
+  let bulletsResponse: {
     results: { company: string; bullets: string[] }[];
-  }>('/resumes/generate-all-bullets', {
-    method: 'POST',
-    token,
-    body: JSON.stringify({
-      skills,
-      companies: profile.companies.map((company) => ({
-        companyName: company.name,
-        bulletCount: company.bulletCount,
-      })),
-      jobDescription: job.jobDescription,
-      targetJobCompany: job.companyName,
-      targetJobTitle: job.jobTitle,
-      applicationId,
-    }),
-  });
+  } | null = null;
+
+  for (let attempt = 1; attempt <= MAX_CLIENT_BULLET_ATTEMPTS; attempt += 1) {
+    if (attempt > 1) {
+      onProgress?.(`Retrying work experience bullets (attempt ${attempt})...`);
+    }
+
+    bulletsResponse = await apiRequest<{
+      results: { company: string; bullets: string[] }[];
+    }>('/resumes/generate-all-bullets', {
+      method: 'POST',
+      token,
+      body: JSON.stringify({
+        skills,
+        companies: profile.companies.map((company) => ({
+          companyName: company.name,
+          bulletCount: company.bulletCount,
+        })),
+        jobDescription: job.jobDescription,
+        targetJobCompany: job.companyName,
+        targetJobTitle: job.jobTitle,
+        applicationId,
+      }),
+    });
+
+    if (areCompanyBulletsComplete(profile, bulletsResponse.results)) {
+      break;
+    }
+  }
+
+  if (!bulletsResponse || !areCompanyBulletsComplete(profile, bulletsResponse.results)) {
+    const missingCompanies = getIncompleteCompanyNames(
+      profile,
+      bulletsResponse?.results || [],
+    );
+    throw new Error(
+      missingCompanies.length
+        ? `Resume bullets are incomplete for: ${missingCompanies.join(', ')}.`
+        : 'Resume bullets could not be generated.',
+    );
+  }
 
   const companyBullets = bulletsResponse.results.map((result) => ({
     company: result.company,
@@ -261,6 +300,7 @@ export async function generateResumeFromJob(
   const resume = await apiRequest<{
     fileUrl: string;
     fileName: string;
+    downloadPath?: string;
   }>('/resumes/generate', {
     method: 'POST',
     token,
@@ -284,6 +324,7 @@ export async function generateResumeFromJob(
     application: finalApplication,
     fileUrl: resume.fileUrl,
     fileName: resume.fileName,
+    downloadPath: resume.downloadPath || resume.fileName,
   };
 }
 
@@ -299,6 +340,41 @@ export async function generateResumeFromApplication(
     token,
     onProgress,
   );
+}
+
+export async function extractSkillsForJob(
+  job: JobRecord,
+  token: string,
+  profileId?: string,
+  onProgress?: (message: string) => void,
+): Promise<{ application: Application; job: JobRecord }> {
+  if (!job.jobDescription?.trim()) {
+    throw new Error('This job has no recorded job description.');
+  }
+
+  onProgress?.('Extracting skills...');
+  const application = await recordSkillsExtractedForJob(job, token, profileId);
+
+  invalidateJobDetailCache(job.id);
+  const updatedJob = await fetchJobDetail(token, job.id, { force: true });
+  cacheJobDetail(updatedJob);
+
+  const skillsPresent =
+    jobHasExtractedSkills(updatedJob) || Boolean(application.skills);
+  if (!skillsPresent) {
+    throw new Error('Skills could not be extracted for this job.');
+  }
+
+  return {
+    application,
+    job: jobHasExtractedSkills(updatedJob)
+      ? updatedJob
+      : {
+          ...updatedJob,
+          skills: application.skills,
+          hasSkills: true,
+        },
+  };
 }
 
 export async function recordSkillsExtractedForJob(
@@ -340,4 +416,8 @@ export async function recordSkillsExtractedForJob(
 
 export async function loadUserProfile(token: string): Promise<Profile> {
   return apiRequest<Profile>('/profiles/me', { token });
+}
+
+export async function loadUserProfileSummary(token: string): Promise<Profile> {
+  return apiRequest<Profile>('/profiles/me/summary', { token });
 }

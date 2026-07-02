@@ -1,31 +1,88 @@
 import { isSameLocalDay } from './application-filters';
 import { applicationHasResume, applicationIsApplied } from './application-lookup';
-import { Application } from '../types';
+import { Application, JobRecord } from '../types';
 
 export type JobStatusFilter =
   | 'all'
-  | 'no_activity'
+  | 'jd_recorded_only'
   | 'skills_extracted'
   | 'resume_generated'
   | 'applied';
 
-export type JobUserStatus = Exclude<JobStatusFilter, 'all'>;
+export type JobDisplayStatus = Exclude<JobStatusFilter, 'all'>;
 
-export function getJobUserStatus(
+export function jobHasExtractedSkills(
+  job: Pick<JobRecord, 'hasSkills' | 'hardSkills' | 'competencies' | 'skills'>,
+): boolean {
+  if (typeof job.hasSkills === 'boolean') {
+    return job.hasSkills;
+  }
+
+  if (job.hardSkills?.length || job.competencies?.length) {
+    return true;
+  }
+
+  const skills = job.skills;
+  return Boolean(
+    skills?.hardSkills?.trim() ||
+      skills?.competencies?.trim() ||
+      skills?.role?.trim() ||
+      skills?.title?.trim(),
+  );
+}
+
+export function jobHasRecordedJd(
+  job: Pick<JobRecord, 'hasJobDescription' | 'jobDescription'>,
+): boolean {
+  if (typeof job.hasJobDescription === 'boolean') {
+    return job.hasJobDescription;
+  }
+
+  return Boolean(job.jobDescription?.trim());
+}
+
+function applicationHasExtractedSkills(
   application: Application | null | undefined,
-): JobUserStatus {
-  if (!application) return 'no_activity';
-  if (applicationIsApplied(application)) return 'applied';
-  if (applicationHasResume(application)) return 'resume_generated';
-  return 'skills_extracted';
+): boolean {
+  if (!application) return false;
+  if (application.status === 'extracted') return true;
+
+  const skills = application.skills;
+  return Boolean(
+    skills?.hardSkills?.trim() ||
+      skills?.competencies?.trim() ||
+      skills?.role?.trim() ||
+      skills?.title?.trim() ||
+      application.hardSkills?.length ||
+      application.competencies?.length,
+  );
+}
+
+export function getJobDisplayStatus(
+  job: JobRecord,
+  application: Application | null | undefined,
+): JobDisplayStatus {
+  if (application) {
+    if (applicationIsApplied(application)) return 'applied';
+    if (applicationHasResume(application)) return 'resume_generated';
+    if (jobHasExtractedSkills(job) || applicationHasExtractedSkills(application)) {
+      return 'skills_extracted';
+    }
+  }
+
+  if (jobHasExtractedSkills(job)) {
+    return 'skills_extracted';
+  }
+
+  return 'jd_recorded_only';
 }
 
 export function jobStatusFilterLabel(filter: JobStatusFilter): string {
   switch (filter) {
     case 'all':
       return 'All';
-    case 'no_activity':
-      return 'No activity';
+    case 'jd_recorded_only':
+      return 'JD recorded only';
     case 'skills_extracted':
       return 'Skills extracted';
     case 'resume_generated':
@@ -35,16 +92,16 @@ export function jobStatusFilterLabel(filter: JobStatusFilter): string {
   }
 }
 
-export function jobUserStatusLabel(status: JobUserStatus): string {
+export function jobDisplayStatusLabel(status: JobDisplayStatus): string {
   return jobStatusFilterLabel(status);
 }
 
 export function matchesJobStatusFilter(
-  userStatus: JobUserStatus,
+  displayStatus: JobDisplayStatus,
   filter: JobStatusFilter,
 ): boolean {
   if (filter === 'all') return true;
-  return userStatus === filter;
+  return displayStatus === filter;
 }
 
 export function matchesJobDateFilter(
@@ -56,7 +113,7 @@ export function matchesJobDateFilter(
   return isSameLocalDay(recordedAt, dateValue);
 }
 
-export function jobUserStatusBadgeClass(status: JobUserStatus): string {
+export function jobDisplayStatusBadgeClass(status: JobDisplayStatus): string {
   switch (status) {
     case 'applied':
       return 'badge-success';
@@ -64,8 +121,8 @@ export function jobUserStatusBadgeClass(status: JobUserStatus): string {
       return 'badge-warning';
     case 'skills_extracted':
       return 'badge-info';
-    case 'no_activity':
-      return 'badge-neutral';
+    case 'jd_recorded_only':
+      return 'badge-secondary';
   }
 }
 
@@ -78,4 +135,8 @@ export function sortJobsByRecordedAt<T extends { createdAt: string }>(
       new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime(),
   );
   return direction === 'asc' ? sorted : sorted.reverse();
+}
+
+export function jobCanExtractSkills(job: JobRecord): boolean {
+  return !jobHasExtractedSkills(job) && jobHasRecordedJd(job);
 }

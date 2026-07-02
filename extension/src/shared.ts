@@ -154,7 +154,13 @@ export async function apiRequest<T>(
   });
 
   if (response.status === 401) {
-    await clearAuthStorage();
+    const tokenToCheck = token || (await getStorage().catch(() => ({}))).token;
+    if (tokenToCheck) {
+      const validation = await validateAuthToken(tokenToCheck);
+      if (validation.status === 'invalid') {
+        await clearAuthStorage();
+      }
+    }
     throw new Error(
       'Session expired. Open the LI Facilitator dashboard, sign in, then retry.',
     );
@@ -226,6 +232,8 @@ export interface ApplicationRecord {
   aiCostUsd?: number;
   aiCostBreakdown?: ApplicationAiCostBreakdown;
   resumeUrl?: string;
+  resumeFolderName?: string;
+  resumeFileName?: string;
   status?: 'recorded' | 'extracted' | 'resume_generated' | 'applied';
 }
 
@@ -313,6 +321,12 @@ export function normalizeApplicationRecord(
     aiCostBreakdown,
     aiCostUsd: sumTrackedAiCostUsd(aiCostBreakdown),
     resumeUrl: typeof application.resumeUrl === 'string' ? application.resumeUrl : undefined,
+    resumeFolderName:
+      typeof application.resumeFolderName === 'string'
+        ? application.resumeFolderName
+        : undefined,
+    resumeFileName:
+      typeof application.resumeFileName === 'string' ? application.resumeFileName : undefined,
     status: application.status as ApplicationRecord['status'],
   };
 }
@@ -400,7 +414,7 @@ export async function ensureAuthenticatedSession(): Promise<StorageData | null> 
   }
 
   const validated = await validateAuthToken(auth.token);
-  if (!validated) {
+  if (validated.status === 'invalid') {
     try {
       await clearAuthStorage();
     } catch (error) {
@@ -411,9 +425,18 @@ export async function ensureAuthenticatedSession(): Promise<StorageData | null> 
     return null;
   }
 
+  if (validated.status === 'unavailable') {
+    return {
+      token: auth.token,
+      email: auth.email || '',
+      authUid: storage.authUid,
+      signedOut: false,
+    };
+  }
+
   let session: { token: string; email: string } | null;
   try {
-    session = await persistAuthSession(validated.token, validated.email);
+    session = await persistAuthSession(validated.session.token, validated.session.email);
   } catch (error) {
     if (isExtensionContextError(error)) {
       throw error;
@@ -422,6 +445,15 @@ export async function ensureAuthenticatedSession(): Promise<StorageData | null> 
   }
 
   if (!session) {
+    if (validated.status === 'valid') {
+      return {
+        token: validated.session.token,
+        email: validated.session.email,
+        authUid: storage.authUid,
+        signedOut: false,
+      };
+    }
+
     try {
       await clearAuthStorage();
     } catch (error) {
@@ -458,7 +490,7 @@ export async function downloadAuthenticatedFile(
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = fileName || 'resume';
+  link.download = fileName.split(/[/\\]/).pop() || fileName || 'resume.docx';
   link.click();
   URL.revokeObjectURL(url);
 }

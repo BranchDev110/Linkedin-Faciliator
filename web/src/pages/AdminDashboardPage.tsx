@@ -6,13 +6,14 @@ import { useAuth } from '../context/AuthContext';
 import { computeDashboardStats } from '../lib/dashboard-stats';
 import { apiRequest } from '../lib/api';
 import { formatUsd } from '../lib/format-cost';
-import { AdminUserSummary, Application } from '../types';
+import { AdminUserSummary, Application, JobRecord } from '../types';
 import '../pages/DashboardPage.css';
 
 export default function AdminDashboardPage() {
   const { token } = useAuth();
   const [users, setUsers] = useState<AdminUserSummary[]>([]);
   const [applications, setApplications] = useState<Application[]>([]);
+  const [jobs, setJobs] = useState<JobRecord[]>([]);
   const [selectedUserId, setSelectedUserId] = useState('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -24,16 +25,19 @@ export default function AdminDashboardPage() {
     setError('');
 
     try {
-      const [usersData, applicationsData] = await Promise.all([
+      const [usersData, applicationsData, jobsData] = await Promise.all([
         apiRequest<AdminUserSummary[]>('/admin/users', { token }),
         apiRequest<Application[]>('/admin/applications', { token }),
+        apiRequest<JobRecord[]>('/admin/jobs', { token }),
       ]);
 
       setUsers(usersData);
       setApplications(applicationsData);
+      setJobs(jobsData);
     } catch (err) {
       setUsers([]);
       setApplications([]);
+      setJobs([]);
       setError(err instanceof Error ? err.message : 'Failed to load admin dashboard');
     } finally {
       setLoading(false);
@@ -49,9 +53,10 @@ export default function AdminDashboardPage() {
       computeDashboardStats(
         [],
         applications,
+        jobs,
         selectedUserId === 'all' ? undefined : selectedUserId,
       ),
-    [applications, selectedUserId],
+    [applications, jobs, selectedUserId],
   );
 
   return (
@@ -92,14 +97,14 @@ export default function AdminDashboardPage() {
         </div>
       )}
 
-      {loading && !applications.length && !error ? (
+      {loading && !applications.length && !jobs.length && !error ? (
         <div className="dashboard-loading">Loading admin dashboard...</div>
       ) : (
         <>
           <section className="dashboard-section">
             <h2 className="section-title">Overview</h2>
             <div className="dashboard-stats-grid overview-grid overview-grid-3">
-              <StatCard label="Total Recorded" value={stats.totalRecorded} sublabel="Jobs saved" variant="recorded" />
+              <StatCard label="Total Recorded" value={stats.totalRecorded} sublabel="Jobs in catalog" variant="recorded" />
               <StatCard label="Total Applied" value={stats.totalApplied} sublabel="Applications submitted" variant="applied" />
               <StatCard label="Total AI Spend" displayValue={formatUsd(stats.totalAiCostUsd)} sublabel="Skills + resume bullets" variant="cost" />
             </div>
@@ -116,12 +121,16 @@ export default function AdminDashboardPage() {
           </section>
 
           <section className="dashboard-section">
-            <h2 className="section-title">Application Activity</h2>
+            <h2 className="section-title">Job & Application Activity</h2>
+            <p className="section-description">
+              Recorded counts come from the shared jobs catalog. Applied counts can be filtered by
+              user above.
+            </p>
             <div className="dashboard-charts-grid">
-              <ApplicationChart title="Last 7 Days" period="week" applications={applications} adminUsers={users} />
-              <ApplicationChart title="Last 2 Weeks" period="twoWeeks" applications={applications} adminUsers={users} />
-              <ApplicationChart title="Last Month" period="month" applications={applications} adminUsers={users} />
-              <ApplicationChart title="Last Quarter" period="quarter" applications={applications} adminUsers={users} />
+              <ApplicationChart title="Last 7 Days" period="week" applications={applications} jobs={jobs} adminUsers={users} />
+              <ApplicationChart title="Last 2 Weeks" period="twoWeeks" applications={applications} jobs={jobs} adminUsers={users} />
+              <ApplicationChart title="Last Month" period="month" applications={applications} jobs={jobs} adminUsers={users} />
+              <ApplicationChart title="Last Quarter" period="quarter" applications={applications} jobs={jobs} adminUsers={users} />
             </div>
           </section>
 

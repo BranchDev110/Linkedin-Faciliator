@@ -3,32 +3,38 @@ import { useAuthScope } from '../hooks/useAuthScope';
 import ResumeViewerModal from '../components/ResumeViewerModal';
 import DisabledButtonWithTooltip from '../components/DisabledButtonWithTooltip';
 import { useToast } from '../components/Toast';
-import { apiRequest } from '../lib/api';
 import {
   applicationStatusClass,
   applicationStatusLabel,
-  normalizeApplicationStatus,
 } from '../lib/application-status';
 import {
+  fetchApplicationSummaries,
+  fetchJobDetail,
+  fetchJobDetails,
+  fetchJobSummaries,
+  fetchProfileSummary,
+  mergeJobWithDetail,
+  upsertApplicationInCache,
+} from '../lib/app-data-cache';
+import {
+  extractSkillsForJob,
   generateResumeFromJob,
   getApplicationForJob,
   getGenerateResumeDisabledReason,
   jobSkillsForResume,
   loadUserProfile,
-  recordSkillsExtractedForJob,
 } from '../lib/job-resume';
 import {
   applicationBlocksResumeGeneration,
   applicationHasResume,
   applicationIsApplied,
-  normalizeApplicationResponse,
-  unwrapApplicationLookup,
 } from '../lib/application-lookup';
 import {
-  getJobUserStatus,
+  getJobDisplayStatus,
+  jobCanExtractSkills,
+  jobDisplayStatusBadgeClass,
+  jobDisplayStatusLabel,
   jobStatusFilterLabel,
-  jobUserStatusBadgeClass,
-  jobUserStatusLabel,
   JobStatusFilter,
   matchesJobDateFilter,
   matchesJobStatusFilter,
@@ -181,9 +187,13 @@ export default function JobsPage() {
   const selectionAnchorRef = useRef<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [profileLoading, setProfileLoading] = useState(true);
+  const [jobDetailLoading, setJobDetailLoading] = useState(false);
+  const [jobDetails, setJobDetails] = useState<Record<string, JobRecord>>({});
   const [generating, setGenerating] = useState(false);
+  const [extractingSkills, setExtractingSkills] = useState(false);
   const [recordingSkills, setRecordingSkills] = useState(false);
   const [generateMessage, setGenerateMessage] = useState('');
+  const [skillsMessage, setSkillsMessage] = useState('');
   const [error, setError] = useState('');
   const [viewingResume, setViewingResume] = useState<{
     url: string;
@@ -197,66 +207,52 @@ export default function JobsPage() {
     setSelectedJobId(null);
     setSelectedIds(new Set());
     selectionAnchorRef.current = null;
+    setJobDetails({});
     setError('');
     setProfileLoading(true);
   }, [userId]);
 
-  const loadJobs = useCallback(async () => {
-    if (!token || !userId) {
-      setJobs([]);
-      setLoading(false);
-      return;
-    }
+  const loadPageData = useCallback(
+    async (force = false) => {
+      if (!token || !userId) {
+        setJobs([]);
+        setProfile(null);
+        setApplications([]);
+        setLoading(false);
+        setProfileLoading(false);
+        return;
+      }
 
-    setLoading(true);
-    setError('');
-    try {
-      const data = await apiRequest<JobRecord[]>('/jobs', { token });
-      setJobs(data);
-      setSelectedJobId((current) => current ?? data[0]?.id ?? null);
-    } catch (err) {
-      setJobs([]);
-      setError(err instanceof Error ? err.message : 'Failed to load jobs');
-    } finally {
-      setLoading(false);
-    }
-  }, [token, userId]);
+      setLoading(true);
+      setProfileLoading(true);
+      setError('');
+      try {
+        const [jobSummaries, profileData, applicationsData] = await Promise.all([
+          fetchJobSummaries(token),
+          fetchProfileSummary(token, userId, { force }),
+          fetchApplicationSummaries(token, userId, { force }),
+        ]);
 
-  const loadProfileAndApplications = useCallback(async () => {
-    if (!token || !userId) {
-      setProfile(null);
-      setApplications([]);
-      setProfileLoading(false);
-      return;
-    }
-
-    setProfileLoading(true);
-    try {
-      const [profileData, applicationsData] = await Promise.all([
-        loadUserProfile(token),
-        apiRequest<unknown[]>('/applications', { token }),
-      ]);
-      setProfile(profileData);
-      setApplications(
-        applicationsData
-          .map((entry) => normalizeApplicationResponse(entry))
-          .filter((entry): entry is Application => entry !== null),
-      );
-    } catch {
-      setProfile(null);
-      setApplications([]);
-    } finally {
-      setProfileLoading(false);
-    }
-  }, [token, userId]);
+        setJobs(jobSummaries);
+        setProfile(profileData);
+        setApplications(applicationsData);
+        setSelectedJobId((current) => current ?? jobSummaries[0]?.id ?? null);
+      } catch (err) {
+        setJobs([]);
+        setProfile(null);
+        setApplications([]);
+        setError(err instanceof Error ? err.message : 'Failed to load jobs');
+      } finally {
+        setLoading(false);
+        setProfileLoading(false);
+      }
+    },
+    [token, userId],
+  );
 
   useEffect(() => {
-    void loadJobs();
-  }, [loadJobs]);
-
-  useEffect(() => {
-    void loadProfileAndApplications();
-  }, [loadProfileAndApplications]);
+    void loadPageData();
+  }, [loadPageData]);
 
   const filteredJobs = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -269,8 +265,8 @@ export default function JobsPage() {
       }
 
       const application = getApplicationForJob(job, applications);
-      const userStatus = getJobUserStatus(application);
-      if (!matchesJobStatusFilter(userStatus, statusFilter)) return false;
+      const displayStatus = getJobDisplayStatus(job, application);
+      if (!matchesJobStatusFilter(displayStatus, statusFilter)) return false;
       if (!matchesJobDateFilter(job.createdAt, dateFilter)) return false;
 
       return true;
@@ -290,8 +286,39 @@ export default function JobsPage() {
     }
   }, [sortedJobs, selectedJobId]);
 
-  const selectedJob =
+  const selectedJobSummary =
     sortedJobs.find((job) => job.id === selectedJobId) || sortedJobs[0] || null;
+
+  const selectedJob = selectedJobSummary
+    ? mergeJobWithDetail(selectedJobSummary, jobDetails[selectedJobSummary.id])
+    : null;
+
+  useEffect(() => {
+    if (!token || !selectedJobId) {
+      return;
+    }
+
+    let cancelled = false;
+    setJobDetailLoading(true);
+
+    void fetchJobDetail(token, selectedJobId)
+      .then((detail) => {
+        if (cancelled) return;
+        setJobDetails((previous) => ({ ...previous, [detail.id]: detail }));
+      })
+      .catch(() => {
+        // Ignore detail fetch errors; summary data still renders.
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setJobDetailLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedJobId, token]);
 
   const selectedCount = selectedIds.size;
   const allVisibleSelected =
@@ -326,6 +353,31 @@ export default function JobsPage() {
     () => selectedJobs.filter((job) => jobCanGenerateResume(job)),
     [selectedJobs, jobCanGenerateResume],
   );
+
+  const selectedExtractableJobs = useMemo(
+    () => selectedJobs.filter((job) => jobCanExtractSkills(job)),
+    [selectedJobs],
+  );
+
+  const bulkExtractDisabledReason = useMemo(() => {
+    if (selectedCount === 0) return 'Select jobs to extract skills.';
+    if (selectedExtractableJobs.length === 0) {
+      return 'Selected jobs already have skills extracted or no recorded JD.';
+    }
+    if (!profile && !profileLoading) return 'Profile not loaded.';
+    if (extractingSkills) return 'Extracting skills...';
+    if (generating) return 'Finish resume generation first.';
+    return '';
+  }, [
+    extractingSkills,
+    generating,
+    profile,
+    profileLoading,
+    selectedCount,
+    selectedExtractableJobs.length,
+  ]);
+
+  const canBulkExtractSkills = bulkExtractDisabledReason === '';
 
   const bulkGenerateDisabledReason = useMemo(() => {
     if (selectedCount === 0) return 'Select jobs to generate resumes.';
@@ -411,6 +463,74 @@ export default function JobsPage() {
     setDateFilter('');
   };
 
+  const handleBulkExtractSkills = async () => {
+    if (!token || !canBulkExtractSkills || !profile) {
+      if (bulkExtractDisabledReason) {
+        showToast(bulkExtractDisabledReason, 'error');
+      }
+      return;
+    }
+
+    setExtractingSkills(true);
+    setSkillsMessage('');
+    try {
+      const jobsToExtract = await fetchJobDetails(
+        token,
+        selectedExtractableJobs.map((job) => job.id),
+      );
+      const jobsById = new Map(jobsToExtract.map((job) => [job.id, job]));
+      let successCount = 0;
+
+      for (let index = 0; index < selectedExtractableJobs.length; index += 1) {
+        const summary = selectedExtractableJobs[index];
+        const job = jobsById.get(summary.id) ?? summary;
+        setSkillsMessage(
+          `Extracting skills ${index + 1} of ${selectedExtractableJobs.length}: ${job.jobTitle || 'Untitled role'}...`,
+        );
+
+        const result = await extractSkillsForJob(job, token, profile.id, (message) => {
+          setSkillsMessage(
+            `Extracting skills ${index + 1} of ${selectedExtractableJobs.length}: ${message}`,
+          );
+        });
+
+        if (userId) {
+          upsertApplicationInCache(result.application, userId);
+        }
+        setApplications((previous) => {
+          const others = previous.filter((app) => app.id !== result.application.id);
+          return [result.application, ...others];
+        });
+        setJobs((previous) =>
+          previous.map((entry) =>
+            entry.id === result.job.id
+              ? {
+                  ...entry,
+                  ...result.job,
+                  jobDescription: undefined,
+                  skills: undefined,
+                  hasSkills: true,
+                  hasJobDescription: true,
+                }
+              : entry,
+          ),
+        );
+        setJobDetails((previous) => ({ ...previous, [result.job.id]: result.job }));
+        successCount += 1;
+      }
+
+      showToast(
+        `Extracted skills for ${successCount} job${successCount !== 1 ? 's' : ''}.`,
+        'success',
+      );
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to extract skills', 'error');
+    } finally {
+      setExtractingSkills(false);
+      setSkillsMessage('');
+    }
+  };
+
   const handleBulkGenerateResume = async () => {
     if (!token || !canBulkGenerate) {
       if (bulkGenerateDisabledReason) {
@@ -432,17 +552,34 @@ export default function JobsPage() {
         throw new Error('Add companies to your profile before generating resumes.');
       }
 
-      const jobsToGenerate = selectedGeneratableJobs;
+      const jobsToGenerate = await fetchJobDetails(
+        token,
+        selectedGeneratableJobs.map((job) => job.id),
+      );
+      const jobsById = new Map(jobsToGenerate.map((job) => [job.id, job]));
       let successCount = 0;
 
-      for (let index = 0; index < jobsToGenerate.length; index++) {
-        const job = jobsToGenerate[index];
+      for (let index = 0; index < selectedGeneratableJobs.length; index++) {
+        const summary = selectedGeneratableJobs[index];
+        const job = jobsById.get(summary.id) ?? summary;
         setGenerateMessage(
-          `Generating resume ${index + 1} of ${jobsToGenerate.length}: ${job.jobTitle || 'Untitled role'}...`,
+          `Generating resume ${index + 1} of ${selectedGeneratableJobs.length}: ${job.jobTitle || 'Untitled role'}...`,
         );
 
-        const result = await generateResumeFromJob(job, freshProfile, token);
+        const result = await generateResumeFromJob(
+          job,
+          freshProfile,
+          token,
+          (message) => {
+            setGenerateMessage(
+              `Generating resume ${index + 1} of ${selectedGeneratableJobs.length}: ${message}`,
+            );
+          },
+        );
 
+        if (userId) {
+          upsertApplicationInCache(result.application, userId);
+        }
         setApplications((previous) => {
           const others = previous.filter((app) => app.id !== result.application.id);
           return [result.application, ...others];
@@ -496,8 +633,12 @@ export default function JobsPage() {
     setGenerating(true);
     setGenerateMessage('');
     try {
-      const freshProfile = await loadUserProfile(token);
+      const [freshProfile, fullJob] = await Promise.all([
+        loadUserProfile(token),
+        fetchJobDetail(token, selectedJob.id),
+      ]);
       setProfile(freshProfile);
+      setJobDetails((previous) => ({ ...previous, [fullJob.id]: fullJob }));
 
       if (!profileHasResumeTemplate(freshProfile)) {
         throw new Error('Upload a resume template in My Profile first.');
@@ -505,17 +646,20 @@ export default function JobsPage() {
       if (!freshProfile.companies.length) {
         throw new Error('Add companies to your profile before generating a resume.');
       }
-      if (!jobSkillsForResume(selectedJob)) {
+      if (!jobSkillsForResume(fullJob)) {
         throw new Error('This job has no extracted skills yet.');
       }
 
       const result = await generateResumeFromJob(
-        selectedJob,
+        fullJob,
         freshProfile,
         token,
         setGenerateMessage,
       );
 
+      if (userId) {
+        upsertApplicationInCache(result.application, userId);
+      }
       setApplications((previous) => {
         const others = previous.filter((app) => app.id !== result.application.id);
         return [result.application, ...others];
@@ -530,57 +674,43 @@ export default function JobsPage() {
     }
   };
 
-  const refreshApplicationForSelectedJob = useCallback(async () => {
-    if (!token || !selectedJob) return;
-
-    try {
-      const params = new URLSearchParams();
-      if (selectedJob.id) params.set('jobId', selectedJob.id);
-      if (selectedJob.linkedInJobId) {
-        params.set('linkedInJobId', selectedJob.linkedInJobId);
-      }
-      if (profile?.id) {
-        params.set('profileId', profile.id);
-      }
-
-      const response = await apiRequest<unknown>(
-        `/applications/lookup?${params.toString()}`,
-        { token },
-      );
-
-      const application = unwrapApplicationLookup(response);
-
-      if (!application) return;
-
-      setApplications((previous) => {
-        const others = previous.filter((app) => app.id !== application.id);
-        return [application, ...others];
-      });
-    } catch {
-      // Ignore lookup errors when selecting jobs.
-    }
-  }, [profile?.id, selectedJob, token]);
-
-  const handleRecordSkillsExtracted = async () => {
-    if (!token || !selectedJob || !profile || !jobSkillsForResume(selectedJob)) {
+  const handleExtractSkills = async () => {
+    if (!token || !selectedJob || !profile) {
       return;
     }
 
     setRecordingSkills(true);
     try {
-      const application = await recordSkillsExtractedForJob(
-        selectedJob,
-        token,
-        profile.id,
-      );
+      const fullJob = await fetchJobDetail(token, selectedJob.id);
+      setJobDetails((previous) => ({ ...previous, [fullJob.id]: fullJob }));
+
+      const result = await extractSkillsForJob(fullJob, token, profile.id);
+      if (userId) {
+        upsertApplicationInCache(result.application, userId);
+      }
       setApplications((previous) => {
-        const others = previous.filter((app) => app.id !== application.id);
-        return [application, ...others];
+        const others = previous.filter((app) => app.id !== result.application.id);
+        return [result.application, ...others];
       });
-      showToast('Skills recorded in your Applications.', 'success');
+      setJobs((previous) =>
+        previous.map((entry) =>
+          entry.id === result.job.id
+            ? {
+                ...entry,
+                ...result.job,
+                jobDescription: undefined,
+                skills: undefined,
+                hasSkills: true,
+                hasJobDescription: true,
+              }
+            : entry,
+        ),
+      );
+      setJobDetails((previous) => ({ ...previous, [result.job.id]: result.job }));
+      showToast('Skills extracted and recorded in your Applications.', 'success');
     } catch (err) {
       showToast(
-        err instanceof Error ? err.message : 'Failed to record skills extraction',
+        err instanceof Error ? err.message : 'Failed to extract skills',
         'error',
       );
     } finally {
@@ -588,11 +718,10 @@ export default function JobsPage() {
     }
   };
 
-  useEffect(() => {
-    void refreshApplicationForSelectedJob();
-  }, [refreshApplicationForSelectedJob]);
-
   const getJobApplication = (job: JobRecord) => getApplicationForJob(job, applications);
+  const selectedDisplayStatus = selectedJob
+    ? getJobDisplayStatus(selectedJob, selectedApplication)
+    : null;
 
   return (
     <div className="jobs-page">
@@ -604,10 +733,7 @@ export default function JobsPage() {
         <button
           type="button"
           className="btn btn-secondary"
-          onClick={() => {
-            void loadJobs();
-            void loadProfileAndApplications();
-          }}
+          onClick={() => void loadPageData(true)}
           disabled={loading}
         >
           Refresh
@@ -637,7 +763,7 @@ export default function JobsPage() {
                     {(
                       [
                         'all',
-                        'no_activity',
+                        'jd_recorded_only',
                         'skills_extracted',
                         'resume_generated',
                         'applied',
@@ -733,6 +859,23 @@ export default function JobsPage() {
               <div className="jobs-summary-actions">
                 <DisabledButtonWithTooltip
                   type="button"
+                  className="btn btn-secondary btn-sm"
+                  disabled={extractingSkills || !canBulkExtractSkills}
+                  disabledReason={
+                    !extractingSkills && bulkExtractDisabledReason
+                      ? bulkExtractDisabledReason
+                      : undefined
+                  }
+                  onClick={() => void handleBulkExtractSkills()}
+                >
+                  {extractingSkills
+                    ? 'Extracting...'
+                    : selectedCount > 1
+                      ? `Extract Skills (${selectedExtractableJobs.length})`
+                      : 'Extract Skills'}
+                </DisabledButtonWithTooltip>
+                <DisabledButtonWithTooltip
+                  type="button"
                   className="btn btn-primary btn-sm"
                   disabled={generating || !canBulkGenerate}
                   disabledReason={
@@ -751,6 +894,10 @@ export default function JobsPage() {
               </div>
             </div>
 
+            {skillsMessage ? (
+              <p className="jobs-generate-status jobs-list-generate-status">{skillsMessage}</p>
+            ) : null}
+
             {generating && generateMessage ? (
               <p className="jobs-generate-status jobs-list-generate-status">{generateMessage}</p>
             ) : null}
@@ -762,7 +909,7 @@ export default function JobsPage() {
             <div className="jobs-list">
               {sortedJobs.map((job, index) => {
                 const application = getJobApplication(job);
-                const userStatus = getJobUserStatus(application);
+                const displayStatus = getJobDisplayStatus(job, application);
                 const isSelected = selectedIds.has(job.id);
                 const isActive = selectedJob?.id === job.id;
 
@@ -803,8 +950,8 @@ export default function JobsPage() {
                       </div>
                     </div>
                     <div className="jobs-list-item-status">
-                      <span className={`badge ${jobUserStatusBadgeClass(userStatus)}`}>
-                        {jobUserStatusLabel(userStatus)}
+                      <span className={`badge ${jobDisplayStatusBadgeClass(displayStatus)}`}>
+                        {jobDisplayStatusLabel(displayStatus)}
                       </span>
                     </div>
                   </div>
@@ -883,17 +1030,18 @@ export default function JobsPage() {
                   {!selectedApplication ? (
                     <>
                       <p className="jobs-empty-inline">
-                        No activity yet. Extract skills or generate a resume to add this job to
-                        your Applications.
+                        {selectedDisplayStatus === 'jd_recorded_only'
+                          ? 'Job description recorded. Extract skills to add this job to your Applications.'
+                          : 'Skills extracted for this job. Generate a resume to add it to your Applications.'}
                       </p>
-                      {jobSkillsForResume(selectedJob) ? (
+                      {selectedJob && jobCanExtractSkills(selectedJob) ? (
                         <button
                           type="button"
                           className="btn btn-secondary btn-sm"
-                          disabled={recordingSkills || profileLoading}
-                          onClick={() => void handleRecordSkillsExtracted()}
+                          disabled={recordingSkills || profileLoading || extractingSkills}
+                          onClick={() => void handleExtractSkills()}
                         >
-                          {recordingSkills ? 'Recording...' : 'Record skills extracted'}
+                          {recordingSkills ? 'Extracting...' : 'Extract Skills'}
                         </button>
                       ) : null}
                     </>
@@ -969,6 +1117,9 @@ export default function JobsPage() {
                 </div>
 
                 <div className="jobs-detail-body">
+                  {jobDetailLoading && !selectedJob.jobDescription ? (
+                    <p className="jobs-empty-inline">Loading job details...</p>
+                  ) : null}
                   <div className="jobs-section jobs-jd-section">
                     <h3>Job Description</h3>
                     <div className="jobs-jd-scroll">

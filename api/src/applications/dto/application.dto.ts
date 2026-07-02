@@ -216,6 +216,8 @@ export interface Application {
   companyBullets?: ApplicationCompanyBullets[];
   skills?: ApplicationSkills;
   resumeUrl?: string;
+  resumeFolderName?: string;
+  resumeFileName?: string;
   status: ApplicationStatus;
   aiCostUsd?: number;
   aiCostBreakdown?: ApplicationAiCostBreakdown;

@@ -102,6 +102,7 @@ const contentScriptBuild = {
   ...sharedBuildOptions,
   entryPoints: {
     content: 'src/content.ts',
+    'file-select-hook': 'src/file-select-hook.ts',
     'voyager-hook': 'src/voyager-hook.ts',
     'web-bridge': 'src/web-bridge.ts',
     'sidebar-host': 'src/sidebar-host.ts',

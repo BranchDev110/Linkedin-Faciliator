@@ -2,7 +2,6 @@ import { validateAuthToken } from './auth-validation';
 import { WEB_URL } from './config';
 import {
   ExtensionContextError,
-  isExtensionContextError,
   isExtensionContextValid,
 } from './extension-runtime';
 import { storageGet, storageRemove, storageSet } from './extension-storage';
@@ -39,8 +38,7 @@ export async function persistAuthSession(
   token: string,
   email = '',
 ): Promise<{ token: string; email: string } | null> {
-  const validated = await validateAuthToken(token);
-  if (!validated) return null;
+  if (!token?.trim()) return null;
 
   if (!isExtensionContextValid()) {
     throw new ExtensionContextError();
@@ -53,24 +51,41 @@ export async function persistAuthSession(
     SIGNED_OUT_KEY,
   ]);
 
-  const nextEmail = validated.email || email;
+  const validation = await validateAuthToken(token);
+
+  if (validation.status === 'invalid') {
+    return null;
+  }
+
+  if (validation.status === 'unavailable') {
+    if (existing.token === token && existing.signedOut !== true) {
+      return {
+        token: existing.token,
+        email: existing.email || email,
+      };
+    }
+
+    return null;
+  }
+
+  const nextEmail = validation.session.email || email;
   const unchanged =
-    existing.token === validated.token &&
+    existing.token === validation.session.token &&
     existing.email === nextEmail &&
-    existing.authUid === validated.uid &&
+    existing.authUid === validation.session.uid &&
     existing.signedOut !== true;
 
   if (!unchanged) {
     await storageSet({
-      token: validated.token,
+      token: validation.session.token,
       email: nextEmail,
-      [AUTH_UID_KEY]: validated.uid,
+      [AUTH_UID_KEY]: validation.session.uid,
       [SIGNED_OUT_KEY]: false,
     });
   }
 
   return {
-    token: validated.token,
+    token: validation.session.token,
     email: nextEmail,
   };
 }

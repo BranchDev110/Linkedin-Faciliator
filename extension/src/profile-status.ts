@@ -6,7 +6,13 @@ export interface ProfileLike {
   companies?: unknown;
 }
 
-export type ApplicationNoticeKind = 'recorded' | 'resume_generated' | 'applied';
+export type ApplicationNoticeKind =
+  | 'skills_extracted'
+  | 'resume_generated'
+  | 'applied'
+  | 'recorded';
+
+export type JobCatalogNoticeKind = 'jd_recorded' | 'skills_in_catalog';
 
 export function normalizeProfileCompanies(raw: unknown): { name: string }[] {
   if (!Array.isArray(raw)) return [];
@@ -56,16 +62,44 @@ export function getProfileSetupWarnings(
   return warnings;
 }
 
+function applicationHasExtractedSkills(application: {
+  skills?: {
+    hardSkills?: string;
+    competencies?: string;
+    role?: string;
+    title?: string;
+  } | null;
+}): boolean {
+  const skills = application.skills;
+  if (!skills) return false;
+
+  return Boolean(
+    skills.hardSkills?.trim() ||
+      skills.competencies?.trim() ||
+      skills.role?.trim() ||
+      skills.title?.trim(),
+  );
+}
+
 export function resolveApplicationNotice(application: {
   id?: string;
   status?: string;
   resumeUrl?: string;
+  skills?: {
+    hardSkills?: string;
+    competencies?: string;
+    role?: string;
+    title?: string;
+  } | null;
 }): ApplicationNoticeKind | null {
   if (application.status === 'applied') {
     return 'applied';
   }
   if (application.resumeUrl?.trim() || application.status === 'resume_generated') {
     return 'resume_generated';
+  }
+  if (application.status === 'extracted' || applicationHasExtractedSkills(application)) {
+    return 'skills_extracted';
   }
   if (application.id) {
     return 'recorded';
@@ -76,11 +110,23 @@ export function resolveApplicationNotice(application: {
 export function applicationNoticeMessage(kind: ApplicationNoticeKind): string {
   switch (kind) {
     case 'applied':
-      return 'You already applied to this job. It is recorded in Applications.';
+      return 'Applied — this job is recorded in Applications.';
     case 'resume_generated':
-      return 'Resume already generated for this job. It is recorded in Applications.';
+      return 'Resume generated — this job is recorded in Applications.';
+    case 'skills_extracted':
+      return 'Skills extracted — this job is recorded in Applications.';
     default:
       return 'This job is already recorded in Applications.';
+  }
+}
+
+export function jobCatalogNoticeMessage(kind: JobCatalogNoticeKind): string {
+  switch (kind) {
+    case 'skills_in_catalog':
+      return 'Skills extracted for this job.';
+    case 'jd_recorded':
+    default:
+      return 'This JD is already recorded.';
   }
 }
 

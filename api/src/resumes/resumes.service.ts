@@ -16,6 +16,12 @@ import {
 import { ResumeBulletService } from './resume-bullet.service';
 import { ResumeContentService } from './resume-content.service';
 import { ResumeTemplateService } from './resume-template.service';
+import {
+  computeResumeStorageFolder,
+  getResumeDocxFileName,
+  getResumeDownloadPath,
+  getResumeTextFileName,
+} from './resume-folder.util';
 
 @Injectable()
 export class ResumesService {
@@ -95,7 +101,9 @@ export class ResumesService {
     };
 
     const isDocxTemplate = profile.resumeTemplateFormat === 'docx';
-    let outputFileName = `Resume_${profile.profileName.replace(/\s+/g, '_')}_${application.companyName.replace(/\s+/g, '_')}_${Date.now()}`;
+    const outputFileName = isDocxTemplate
+      ? getResumeDocxFileName(profile)
+      : getResumeTextFileName(profile);
     let fileBuffer: Buffer | string = '';
 
     if (isDocxTemplate) {
@@ -107,14 +115,12 @@ export class ResumesService {
         fillData,
       );
 
-      outputFileName += '.docx';
       fileBuffer = filledDocx;
     } else {
       const content = this.resumeTemplateService.fillTemplate(
         profile.resumeTemplate,
         fillData,
       );
-      outputFileName += '.txt';
       fileBuffer = content;
     }
 
@@ -125,10 +131,16 @@ export class ResumesService {
       fileBuffer,
     );
     const fileUrl = this.fileStorageService.buildDownloadUrl(filePath);
+    const resumeFolderName = computeResumeStorageFolder(dto.applicationId);
+    const resumeFileName = outputFileName;
 
     await this.applicationsService.updateResumeGenerated(
       dto.applicationId,
       fileUrl,
+      {
+        resumeFolderName,
+        resumeFileName,
+      },
     );
 
     const updatedApplication = await this.applicationsService.findOne(
@@ -140,6 +152,8 @@ export class ResumesService {
       filePath,
       fileName: outputFileName,
       fileUrl,
+      resumeFolderName,
+      downloadPath: getResumeDownloadPath(profile, resumeFolderName, resumeFileName),
       applicationAiCostUsd: updatedApplication.aiCostUsd ?? 0,
     };
   }

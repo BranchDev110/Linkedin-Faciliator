@@ -427,6 +427,13 @@ body {
   color: #1d4ed8;
 }
 
+.profile-application-notice.notice-skills_extracted,
+.job-application-notice.notice-skills_extracted {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1d4ed8;
+}
+
 .profile-application-notice.notice-resume_generated,
 .job-application-notice.notice-resume_generated {
   background: #fefce8;
@@ -472,9 +479,18 @@ body {
   font-size: 12px;
   font-weight: 500;
   line-height: 1.45;
-  background: #fefce8;
-  border: 1px solid #fde68a;
-  color: #92400e;
+}
+
+.job-saved-notice.notice-jd_recorded {
+  background: #e0e7ff;
+  border: 1px solid #c7d2fe;
+  color: #4338ca;
+}
+
+.job-saved-notice.notice-skills_in_catalog {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1d4ed8;
 }
 
 .notice {

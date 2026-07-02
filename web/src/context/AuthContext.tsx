@@ -12,6 +12,7 @@ import {
   EMAIL_KEY,
   SIGNED_OUT_KEY,
   TOKEN_KEY,
+  isSignedOutFlagSet,
   shouldRestoreStoredSession,
 } from '../lib/auth-session';
 import { AuthUser } from '../types';
@@ -180,23 +181,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const onAuthUpdated = () => {
       if (cancelled) return;
 
-      const storedToken = localStorage.getItem(TOKEN_KEY);
-      if (!storedToken) {
-        onAuthClear();
-        return;
-      }
-
-      if (storedToken === tokenRef.current) {
-        return;
-      }
-
       if (authUpdateTimerRef.current) {
         window.clearTimeout(authUpdateTimerRef.current);
       }
 
       authUpdateTimerRef.current = window.setTimeout(() => {
+        const storedToken = localStorage.getItem(TOKEN_KEY);
+        if (!storedToken) {
+          if (isSignedOutFlagSet()) {
+            onAuthClear();
+          }
+          return;
+        }
+
+        if (storedToken === tokenRef.current) {
+          return;
+        }
+
         void bootstrap({ silent: true });
-      }, 150);
+      }, 200);
     };
 
     const onAuthClear = () => {
@@ -258,7 +261,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return completeAuth(response);
   };
 
+  const beginFreshSignIn = () => {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(EMAIL_KEY);
+    clearSignedOutFlag();
+    invalidateSession();
+  };
+
   const signIn = async (email: string, password: string): Promise<AuthUser> => {
+    beginFreshSignIn();
+
     const response = await apiRequest<{ accessToken: string; user: AuthUser }>(
       '/auth/login',
       {

@@ -28,11 +28,14 @@ import {
   type ApplicationRecord,
 } from './shared';
 import { formatUsd } from './format-cost';
+import { buildResumeDownloadPath, getResumeDownloadFileName } from './resume-naming';
 import {
   applicationNoticeMessage,
   getProfileSetupWarnings,
+  jobCatalogNoticeMessage,
   profileHasTemplate as profileHasResumeTemplate,
   resolveApplicationNotice,
+  type JobCatalogNoticeKind,
 } from './profile-status';
 import type { ExtractedJob } from './extract-job';
 
@@ -95,6 +98,7 @@ interface GeneratedResumeInfo {
   filePath?: string;
   fileName?: string;
   fileUrl?: string;
+  downloadPath?: string;
 }
 
 const authSection = document.getElementById('auth-section')!;
@@ -120,6 +124,7 @@ const jdHighlight = document.getElementById('jd-highlight')!;
 const skillsText = document.getElementById('skills-text') as HTMLTextAreaElement;
 const btnRefreshJd = document.getElementById('btn-refresh-jd') as HTMLButtonElement;
 const btnRefreshJdEmpty = document.getElementById('btn-refresh-jd-empty') as HTMLButtonElement;
+const btnRecordJd = document.getElementById('btn-record-jd') as HTMLButtonElement;
 const btnExtractSkills = document.getElementById('btn-extract-skills') as HTMLButtonElement;
 const btnApplied = document.getElementById('btn-applied') as HTMLButtonElement;
 const btnGenerate = document.getElementById('btn-generate') as HTMLButtonElement;
@@ -250,8 +255,14 @@ function hideResumeDownload() {
   resumeResultNameEl.textContent = '—';
 }
 
-function showResumeDownload(fileName: string) {
-  resumeResultNameEl.textContent = fileName;
+function showResumeDownload(
+  profile: Profile | null | undefined,
+  resumeFolderName?: string,
+  resumeFileName?: string,
+) {
+  resumeResultNameEl.textContent = profile
+    ? buildResumeDownloadPath(profile, resumeFolderName, resumeFileName)
+    : '—';
 }
 
 function buildResumeInputSnapshot(): string {
@@ -339,15 +350,31 @@ function buildApplicationLookupPath(): string | null {
   return `/applications/lookup?${params.toString()}`;
 }
 
-function clearJobSavedNotice() {
+interface JobLookupResponse {
+  found?: boolean;
+  hasJobDescription?: boolean;
+  hasSkills?: boolean;
+  skills?: ApplicationSkills;
+  fromCache?: boolean;
+}
+
+function clearJobCatalogNotice() {
   jobSavedNotice.textContent = '';
-  jobSavedNotice.classList.add('hidden');
+  jobSavedNotice.className = 'job-saved-notice hidden';
+}
+
+function showJobCatalogNotice(kind: JobCatalogNoticeKind) {
+  jobSavedNotice.textContent = jobCatalogNoticeMessage(kind);
+  jobSavedNotice.className = `job-saved-notice notice-${kind}`;
+  jobSavedNotice.classList.remove('hidden');
+}
+
+function clearJobSavedNotice() {
+  clearJobCatalogNotice();
 }
 
 function showJobSavedNotice() {
-  jobSavedNotice.textContent =
-    'This job was saved before in shared jobs — skills are pre-filled.';
-  jobSavedNotice.classList.remove('hidden');
+  showJobCatalogNotice('skills_in_catalog');
 }
 
 function resetApplicationPrefillState(options?: { keepSkills?: boolean }) {
@@ -418,7 +445,10 @@ async function applyApplicationPrefill(
       ? 'applied'
       : app.resumeUrl?.trim() || app.status === 'resume_generated'
         ? 'resume_generated'
-        : app.status || 'recorded';
+        : app.status === 'extracted' ||
+            (app.skills && hasSkillsContent(app.skills as ApplicationSkills))
+          ? 'extracted'
+          : app.status || 'recorded';
   await setStorage({ lastApplicationId: app.id });
 
   if (app.skills && hasSkillsContent(app.skills as ApplicationSkills)) {
@@ -435,13 +465,19 @@ async function applyApplicationPrefill(
 
   if (app.resumeUrl) {
     const filePath = filePathFromDownloadUrl(app.resumeUrl);
+    const downloadPath = buildResumeDownloadPath(
+      currentProfile,
+      app.resumeFolderName,
+      app.resumeFileName,
+    );
     lastGeneratedResume = {
       fileUrl: app.resumeUrl,
       filePath,
-      fileName: fileNameFromDownloadUrl(app.resumeUrl),
+      fileName: app.resumeFileName || fileNameFromDownloadUrl(app.resumeUrl),
+      downloadPath,
     };
     if (filePath) {
-      showResumeDownload(lastGeneratedResume.fileName || 'Resume');
+      showResumeDownload(currentProfile, app.resumeFolderName, app.resumeFileName);
     }
     commitResumeInputSnapshot();
   } else {
@@ -472,13 +508,19 @@ async function applyApplicationPrefill(
 
   updateAppliedButton();
   updateActionButtons();
+  clearJobCatalogNotice();
   showApplicationNoticeFromApplication(app);
 }
 
-async function syncCachedSkillsForCurrentJob(): Promise<boolean> {
+async function syncJobCatalogStatusForCurrentJob(): Promise<boolean> {
   const linkedInJobId = getCurrentLinkedInJobId();
   if (!linkedInJobId) {
-    clearJobSavedNotice();
+    clearJobCatalogNotice();
+    return false;
+  }
+
+  if (lastApplicationId) {
+    clearJobCatalogNotice();
     return false;
   }
 
@@ -488,37 +530,45 @@ async function syncCachedSkillsForCurrentJob(): Promise<boolean> {
 
   const storage = await getStorage();
   if (!storage.token) {
-    clearJobSavedNotice();
+    clearJobCatalogNotice();
     return false;
   }
 
   try {
-    const response = await apiRequest<{
-      skills: ApplicationSkills;
-      fromCache?: boolean;
-    } | null>(
+    const response = await apiRequest<JobLookupResponse | null>(
       `/jobs/lookup?linkedInJobId=${encodeURIComponent(linkedInJobId)}`,
       { token: storage.token },
     );
 
-    if (response?.skills && hasSkillsContent(response.skills)) {
+    if (!response?.found) {
+      clearJobCatalogNotice();
+      return false;
+    }
+
+    if (response.hasSkills && response.skills && hasSkillsContent(response.skills)) {
       skillsLoadedFromCache = Boolean(response.fromCache);
       displaySkillsJson(response.skills, { skipDirty: true });
-      if (skillsLoadedFromCache) {
-        showJobSavedNotice();
-      } else {
-        clearJobSavedNotice();
-      }
+      showJobCatalogNotice('skills_in_catalog');
       updateJobCostPanel();
       updateActionButtons();
       return skillsLoadedFromCache;
     }
-  } catch {
-    // Cached skills unavailable.
-  }
 
-  clearJobSavedNotice();
-  return false;
+    if (response.hasJobDescription) {
+      showJobCatalogNotice('jd_recorded');
+      return false;
+    }
+
+    clearJobCatalogNotice();
+    return false;
+  } catch {
+    clearJobCatalogNotice();
+    return false;
+  }
+}
+
+async function syncCachedSkillsForCurrentJob(): Promise<boolean> {
+  return syncJobCatalogStatusForCurrentJob();
 }
 
 async function syncExistingApplicationForCurrentJob(): Promise<void> {
@@ -1332,6 +1382,57 @@ async function generateCompanyBullets(companyIndex: number) {
   }
 }
 
+async function performRecordJd(token: string): Promise<void> {
+  if (!canRecordJd()) {
+    throw new Error('Load a LinkedIn job description before recording it.');
+  }
+
+  await ensureRealJobUrlResolved();
+
+  const description = jdText.value.trim();
+  const jobData = getJobData(description);
+  const linkedInJobId = getCurrentLinkedInJobId();
+
+  if (!linkedInJobId) {
+    throw new Error('Open a LinkedIn job listing to record it.');
+  }
+
+  await apiRequest('/jobs/record', {
+    method: 'POST',
+    token,
+    body: JSON.stringify({
+      linkedInJobId,
+      jobDescription: description,
+      companyName: jobData.companyName,
+      jobTitle: jobData.jobTitle,
+      linkedInJobUrl: jobData.linkedInJobUrl || jobData.jobUrl,
+      realJobUrl: jobData.realJobUrl || '',
+      location: jobData.location || '',
+      companyLogoUrl: jobData.companyLogoUrl || '',
+    }),
+  });
+}
+
+async function recordJdFromSidebar() {
+  const storage = await getStorage();
+  if (!storage.token) return;
+
+  hideStatus();
+  btnRecordJd.disabled = true;
+  btnRecordJd.textContent = 'Recording...';
+
+  try {
+    await performRecordJd(storage.token);
+    await syncJobCatalogStatusForCurrentJob();
+    showStatus('Job description recorded in the shared jobs database.', 'success');
+  } catch (err) {
+    showStatus(err instanceof Error ? err.message : 'Failed to record job description', 'error');
+  } finally {
+    btnRecordJd.textContent = 'Record JD';
+    updateActionButtons();
+  }
+}
+
 async function performExtractSkills(token: string): Promise<ExtractApplicationSkillsResponse> {
   if (!canExtractSkills()) {
     throw new Error('Load a job description before extracting skills.');
@@ -1380,23 +1481,19 @@ async function performExtractSkills(token: string): Promise<ExtractApplicationSk
           ? 'resume_generated'
           : response.application.status || 'extracted';
     applyCostBreakdownFromApplication(response.application);
+    showApplicationNoticeFromApplication(response.application);
+    clearJobCatalogNotice();
   } else if (lastApplicationId) {
     await refreshCostFromApplication(token);
   } else if (!response.fromCache && response.costUsd && response.costUsd > 0) {
     addLocalCost('skillExtraction', response.costUsd);
   }
 
-  if (response.fromCache) {
-    showJobSavedNotice();
-  } else {
-    clearJobSavedNotice();
+  if (!response.application) {
+    await syncJobCatalogStatusForCurrentJob();
   }
 
   updateJobCostPanel();
-
-  if (response.application) {
-    showApplicationNoticeFromApplication(response.application);
-  }
 
   if (currentProfile) {
     await refreshSelectedProfile(token);
@@ -1505,6 +1602,8 @@ async function performGenerateResume(token: string) {
     filePath?: string;
     fileUrl?: string;
     fileName?: string;
+    downloadPath?: string;
+    resumeFolderName?: string;
     applicationAiCostUsd?: number;
   }>('/resumes/generate', {
     method: 'POST',
@@ -1521,8 +1620,15 @@ async function performGenerateResume(token: string) {
     filePath: resume.filePath,
     fileName: resume.fileName,
     fileUrl: resume.fileUrl,
+    downloadPath:
+      resume.downloadPath ||
+      buildResumeDownloadPath(
+        currentProfile,
+        resume.resumeFolderName,
+        resume.fileName,
+      ),
   };
-  showResumeDownload(resume.fileName || 'Resume');
+  showResumeDownload(currentProfile, resume.resumeFolderName, resume.fileName);
   commitResumeInputSnapshot();
   await refreshCostFromApplication(token);
 
@@ -1663,6 +1769,10 @@ function canExtractSkills(): boolean {
   return hasLoadedJobDescription();
 }
 
+function canRecordJd(): boolean {
+  return hasLoadedJobDescription() && Boolean(getCurrentLinkedInJobId());
+}
+
 function canGenerateAllBullets(): boolean {
   return hasSkillsContent(extractedSkills);
 }
@@ -1677,6 +1787,12 @@ function updateActionButtons() {
   btnExtractSkills.title = hasJd
     ? 'Extract skills from the job description with AI'
     : 'Open a LinkedIn job and load the description first';
+  btnRecordJd.disabled = !canRecordJd() || oneClickInProgress;
+  btnRecordJd.title = !hasJd
+    ? 'Open a LinkedIn job and load the description first'
+    : !getCurrentLinkedInJobId()
+      ? 'Open a LinkedIn job listing to record it'
+      : 'Save this job description to the shared jobs database without extracting skills';
   updatePrimaryActionsVisibility();
   btnGenerate.disabled =
     generateBlockers.length > 0 || oneClickInProgress || resumeUpToDate || applicationWorkflowComplete();
@@ -2157,6 +2273,10 @@ jdText.addEventListener('scroll', () => {
 const refreshJobDescription = () => extractJobFromTab(true);
 btnRefreshJd.addEventListener('click', refreshJobDescription);
 btnRefreshJdEmpty.addEventListener('click', refreshJobDescription);
+btnRecordJd.addEventListener('click', () => {
+  if (!canRecordJd()) return;
+  void recordJdFromSidebar();
+});
 btnExtractSkills.addEventListener('click', () => {
   if (!canExtractSkills()) return;
   void extractSkillsFromApi();
@@ -2346,7 +2466,7 @@ btnDownloadResume.addEventListener('click', async () => {
     await downloadAuthenticatedFile(
       lastGeneratedResume.filePath,
       storage.token,
-      lastGeneratedResume.fileName || 'resume.docx',
+      getResumeDownloadFileName(currentProfile),
     );
     showStatus('Resume downloaded.', 'success');
   } catch (err) {

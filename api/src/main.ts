@@ -44,7 +44,12 @@ function getAllowedOrigins():
 }
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    bodyParser: false,
+  });
+
+  app.useBodyParser('json', { limit: '500kb' });
+  app.useBodyParser('urlencoded', { limit: '500kb', extended: true });
 
   const webIndexPath = resolveWebIndexPath();
   const spaPaths = new Set([

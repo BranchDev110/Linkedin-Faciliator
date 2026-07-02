@@ -128,6 +128,8 @@ export interface Application {
     competencies: string;
   };
   resumeUrl?: string;
+  resumeFolderName?: string;
+  resumeFileName?: string;
   status: 'recorded' | 'extracted' | 'resume_generated' | 'applied';
   aiCostUsd?: number;
   aiCostBreakdown?: {
@@ -196,4 +198,6 @@ export interface JobRecord {
   extractionCostUsd: number;
   createdAt: string;
   updatedAt: string;
+  hasSkills?: boolean;
+  hasJobDescription?: boolean;
 }

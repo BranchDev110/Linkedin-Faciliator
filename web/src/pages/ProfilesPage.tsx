@@ -3,6 +3,7 @@ import { useAuthScope } from '../hooks/useAuthScope';
 import { useToast } from '../components/Toast';
 import { apiRequest } from '../lib/api';
 import { uploadProfileResumeTemplate } from '../lib/profile-template';
+import { RESUME_TEMPLATE_MAX_BYTES } from '../lib/resume-template.constants';
 import { CreateProfileInput, Profile, ProfileCompany } from '../types';
 import './ProfilesPage.css';
 
@@ -199,6 +200,12 @@ const ResumeTemplateSection = forwardRef<
   const handleFile = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    if (file.size > RESUME_TEMPLATE_MAX_BYTES) {
+      showToast('Resume template must be 500 KB or smaller.', 'error');
+      e.target.value = '';
+      return;
+    }
 
     try {
       const lowerName = file.name.toLowerCase();

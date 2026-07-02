@@ -1,28 +1,31 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useAuthScope } from '../hooks/useAuthScope';
 import StatCard from '../components/StatCard';
 import ApplicationChart from '../components/ApplicationChart';
 import PricingChart from '../components/PricingChart';
-import { useAuthScope } from '../hooks/useAuthScope';
 import { computeDashboardStats } from '../lib/dashboard-stats';
-import { apiRequest } from '../lib/api';
+import { fetchApplicationSummaries, fetchJobSummaries } from '../lib/app-data-cache';
 import { formatUsd } from '../lib/format-cost';
-import { Application } from '../types';
+import { Application, JobRecord } from '../types';
 import './DashboardPage.css';
 
 export default function DashboardPage() {
   const { userId, token } = useAuthScope();
   const [applications, setApplications] = useState<Application[]>([]);
+  const [jobs, setJobs] = useState<JobRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
     setApplications([]);
+    setJobs([]);
     setError('');
   }, [userId]);
 
   const loadDashboardData = useCallback(async () => {
     if (!token || !userId) {
       setApplications([]);
+      setJobs([]);
       setLoading(false);
       return;
     }
@@ -31,10 +34,15 @@ export default function DashboardPage() {
     setError('');
 
     try {
-      const applicationsData = await apiRequest<Application[]>('/applications', { token });
+      const [applicationsData, jobsData] = await Promise.all([
+        fetchApplicationSummaries(token, userId),
+        fetchJobSummaries(token),
+      ]);
       setApplications(applicationsData);
+      setJobs(jobsData);
     } catch (err) {
       setApplications([]);
+      setJobs([]);
       setError(err instanceof Error ? err.message : 'Failed to load dashboard data');
     } finally {
       setLoading(false);
@@ -46,8 +54,8 @@ export default function DashboardPage() {
   }, [loadDashboardData]);
 
   const stats = useMemo(
-    () => computeDashboardStats([], applications),
-    [applications],
+    () => computeDashboardStats([], applications, jobs),
+    [applications, jobs],
   );
 
   return (
@@ -73,7 +81,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {loading && !applications.length && !error ? (
+      {loading && !applications.length && !jobs.length && !error ? (
         <div className="dashboard-loading">Loading dashboard...</div>
       ) : (
         <>
@@ -83,7 +91,7 @@ export default function DashboardPage() {
               <StatCard
                 label="Total Recorded"
                 value={stats.totalRecorded}
-                sublabel="Jobs saved"
+                sublabel="Jobs in catalog"
                 variant="recorded"
               />
               <StatCard
@@ -112,27 +120,35 @@ export default function DashboardPage() {
           </section>
 
           <section className="dashboard-section">
-            <h2 className="section-title">Application Activity</h2>
+            <h2 className="section-title">Job & Application Activity</h2>
+            <p className="section-description">
+              Recorded counts come from the shared jobs catalog. Applied counts come from your
+              applications.
+            </p>
             <div className="dashboard-charts-grid">
               <ApplicationChart
                 title="Last 7 Days"
                 period="week"
                 applications={applications}
+                jobs={jobs}
               />
               <ApplicationChart
                 title="Last 2 Weeks"
                 period="twoWeeks"
                 applications={applications}
+                jobs={jobs}
               />
               <ApplicationChart
                 title="Last Month"
                 period="month"
                 applications={applications}
+                jobs={jobs}
               />
               <ApplicationChart
                 title="Last Quarter"
                 period="quarter"
                 applications={applications}
+                jobs={jobs}
               />
             </div>
           </section>

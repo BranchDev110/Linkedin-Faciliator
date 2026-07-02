@@ -21,6 +21,7 @@ import {
   normalizeProfile,
   serializeCompanies,
 } from './profile-normalizer';
+import { RESUME_TEMPLATE_MAX_BYTES } from './resume-template.constants';
 
 export interface ProfileDefaults {
   profileName?: string;
@@ -70,6 +71,45 @@ export class ProfilesService {
       firstName: nameParts[0] || '',
       lastName: nameParts.slice(1).join(' '),
     });
+  }
+
+  async getOrCreateSummaryForUser(
+    userId: string,
+    defaults: ProfileDefaults = {},
+  ): Promise<Profile> {
+    const profile = await this.getOrCreateForUser(userId, defaults);
+    return this.toSummaryProfile(profile);
+  }
+
+  private toSummaryProfile(profile: Profile): Profile {
+    return {
+      ...profile,
+      generalPrompt: '',
+      resumeTemplate: '',
+      companies: profile.companies.map((company) => ({
+        name: company.name,
+        prompt: '',
+        bulletCount: company.bulletCount,
+      })),
+    };
+  }
+
+  async findSummaryByUser(userId: string): Promise<Profile | null> {
+    const doc = await this.profileModel
+      .findOne({ userId })
+      .select('-resumeTemplate -generalPrompt')
+      .lean()
+      .exec();
+    if (!doc) {
+      return null;
+    }
+
+    return this.toSummaryProfile(
+      normalizeProfile(
+        String(doc._id),
+        doc as unknown as Record<string, unknown>,
+      ),
+    );
   }
 
   async findAllByUser(userId: string): Promise<Profile[]> {
@@ -198,6 +238,12 @@ export class ProfilesService {
         throw new BadRequestException('The uploaded .docx file is empty.');
       }
 
+      if (templateBuffer.length > RESUME_TEMPLATE_MAX_BYTES) {
+        throw new BadRequestException(
+          'Resume template must be 500 KB or smaller.',
+        );
+      }
+
       const fileName = options.fileName?.trim() || 'resume-template.docx';
       const filePath = this.fileStorageService.saveTemplate(
         userId,
@@ -215,6 +261,12 @@ export class ProfilesService {
     } else {
       if (!options.template?.trim()) {
         throw new BadRequestException('A resume template is required.');
+      }
+
+      if (Buffer.byteLength(options.template, 'utf8') > RESUME_TEMPLATE_MAX_BYTES) {
+        throw new BadRequestException(
+          'Resume template must be 500 KB or smaller.',
+        );
       }
 
       await this.profileModel.findByIdAndUpdate(profileId, {

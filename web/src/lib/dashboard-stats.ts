@@ -2,6 +2,7 @@ import {
   Application,
   ChartDataPoint,
   DashboardStats,
+  JobRecord,
   PricingChartDataPoint,
   Profile,
 } from '../types';
@@ -22,17 +23,28 @@ function getRecordedDate(app: Application): Date {
   return new Date(app.createdAt);
 }
 
+function getJobRecordedDate(job: JobRecord): Date {
+  return new Date(job.createdAt);
+}
+
 function getAppliedDate(app: Application): Date | null {
   if (app.status !== 'applied') return null;
   const value = app.appliedAt || app.updatedAt;
   return value ? new Date(value) : null;
 }
 
-function filterByDays(applications: Application[], days: number): Application[] {
+function filterApplicationsByDays(applications: Application[], days: number): Application[] {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - days);
   cutoff.setHours(0, 0, 0, 0);
   return applications.filter((app) => getRecordedDate(app) >= cutoff);
+}
+
+function filterJobsByDays(jobs: JobRecord[], days: number): JobRecord[] {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+  cutoff.setHours(0, 0, 0, 0);
+  return jobs.filter((job) => getJobRecordedDate(job) >= cutoff);
 }
 
 function formatDayLabel(date: Date): string {
@@ -61,6 +73,7 @@ export function getApplicationWorkflowCost(app: Application): number {
 export function computeDashboardStats(
   profiles: Profile[],
   applications: Application[],
+  jobs: JobRecord[],
   userId?: string,
   profileId?: string,
 ): DashboardStats {
@@ -79,8 +92,8 @@ export function computeDashboardStats(
   const yesterday = new Date(now);
   yesterday.setDate(yesterday.getDate() - 1);
 
-  const todayRecorded = scopedApplications.filter((app) =>
-    isSameDay(getRecordedDate(app), now),
+  const todayRecorded = jobs.filter((job) =>
+    isSameDay(getJobRecordedDate(job), now),
   ).length;
 
   const todayApplied = scopedApplications.filter((app) => {
@@ -88,8 +101,8 @@ export function computeDashboardStats(
     return appliedDate ? isSameDay(appliedDate, now) : false;
   }).length;
 
-  const yesterdayRecorded = scopedApplications.filter((app) =>
-    isSameDay(getRecordedDate(app), yesterday),
+  const yesterdayRecorded = jobs.filter((job) =>
+    isSameDay(getJobRecordedDate(job), yesterday),
   ).length;
 
   const yesterdayApplied = scopedApplications.filter((app) => {
@@ -103,7 +116,7 @@ export function computeDashboardStats(
 
   return {
     profileCount: scopedProfiles.length,
-    totalRecorded: scopedApplications.length,
+    totalRecorded: jobs.length,
     totalApplied: scopedApplications.filter((app) => app.status === 'applied').length,
     todayRecorded,
     todayApplied,
@@ -186,24 +199,29 @@ function nearestBucket<T extends { sortKey: number }>(buckets: T[], date: Date):
 
 export function buildChartData(
   applications: Application[],
+  jobs: JobRecord[],
   period: ChartPeriod,
   profileId?: string,
   userId?: string,
 ): ChartDataPoint[] {
-  let scoped = applications;
+  let scopedApplications = applications;
   if (userId) {
-    scoped = scoped.filter((app) => app.userId === userId);
+    scopedApplications = scopedApplications.filter((app) => app.userId === userId);
   }
   if (profileId) {
-    scoped = scoped.filter((app) => app.profileId === profileId);
+    scopedApplications = scopedApplications.filter((app) => app.profileId === profileId);
   }
+
   const periodDays = { week: 7, twoWeeks: 14, month: 30, quarter: 90 }[period];
-  const filtered = filterByDays(scoped, periodDays);
+  const filteredApplications = filterApplicationsByDays(scopedApplications, periodDays);
+  const filteredJobs = filterJobsByDays(jobs, periodDays);
   const buckets = createBuckets(period);
 
-  for (const app of filtered) {
-    nearestBucket(buckets, getRecordedDate(app)).recorded += 1;
+  for (const job of filteredJobs) {
+    nearestBucket(buckets, getJobRecordedDate(job)).recorded += 1;
+  }
 
+  for (const app of filteredApplications) {
     const appliedDate = getAppliedDate(app);
     if (appliedDate) {
       nearestBucket(buckets, appliedDate).applied += 1;
@@ -247,7 +265,7 @@ export function buildPricingChartData(
     scoped = scoped.filter((app) => app.profileId === profileId);
   }
   const periodDays = { week: 7, twoWeeks: 14, month: 30, quarter: 90 }[period];
-  const filtered = filterByDays(scoped, periodDays);
+  const filtered = filterApplicationsByDays(scoped, periodDays);
   const buckets = createPricingBuckets(period);
 
   for (const app of filtered) {

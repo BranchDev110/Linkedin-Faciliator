@@ -17,7 +17,7 @@ export class Job {
   @Prop({ required: true, default: '' })
   jobDescription!: string;
 
-  @Prop({ type: MongooseSchema.Types.Mixed, required: true })
+  @Prop({ type: MongooseSchema.Types.Mixed, default: {} })
   skills!: Record<string, unknown>;
 
   @Prop({ type: [String], default: [] })

@@ -15,6 +15,7 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import { ApplicationsService } from './applications.service';
 import { CreateApplicationDto, MarkApplicationsAppliedDto, UpdateApplicationDto } from './dto/application.dto';
 import { ExtractApplicationSkillsDto } from './dto/extract-skills.dto';
+import { RecordResumeSelectionDto } from './dto/record-resume-selection.dto';
 
 @Controller('applications')
 @UseGuards(JwtAuthGuard, ApprovedGuard)
@@ -23,7 +24,7 @@ export class ApplicationsController {
 
   @Get()
   async list(@CurrentUser() user: AuthUser) {
-    return this.applicationsService.findAllByUser(user.uid);
+    return this.applicationsService.findAllSummariesByUser(user.uid);
   }
 
   @Post('extract-skills')
@@ -41,6 +42,14 @@ export class ApplicationsController {
     }
 
     return this.applicationsService.findJobSkills(linkedInJobId);
+  }
+
+  @Post('resume-selection')
+  async recordResumeSelection(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: RecordResumeSelectionDto,
+  ) {
+    return this.applicationsService.recordResumeFileSelection(user.uid, dto);
   }
 
   @Get('lookup')
