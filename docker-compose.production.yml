@@ -3,7 +3,7 @@
 
 services:
   app:
-    image: ${APP_IMAGE:-ghcr.io/branchdev110/linkedin-faciliator:production}
+    image: ${APP_IMAGE:-ghcr.io/branchdev110/linkedin-facilitator:production}
     container_name: li-facilitator-production-app
     env_file:
       - ${ENV_FILE:-./deploy/env/production.env}

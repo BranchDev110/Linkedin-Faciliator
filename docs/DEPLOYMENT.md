@@ -30,7 +30,7 @@ One compose stack per server at e.g. `/opt/li-facilitator-production`.
 Run once on Ubuntu 22.04/24.04 (as root):
 
 ```bash
-git clone git@github.com:BranchDev110/Linkedin-Faciliator.git /tmp/li-facilitator
+git clone git@github.com:BranchDev110/Linkedin-Facilitator.git /tmp/li-facilitator
 bash /tmp/li-facilitator/deploy/scripts/setup-vps.sh
 ```
 
@@ -39,7 +39,7 @@ bash /tmp/li-facilitator/deploy/scripts/setup-vps.sh
 As the deploy user:
 
 ```bash
-git clone git@github.com:BranchDev110/Linkedin-Faciliator.git /opt/li-facilitator-production
+git clone git@github.com:BranchDev110/Linkedin-Facilitator.git /opt/li-facilitator-production
 cd /opt/li-facilitator-production
 git checkout production
 cp deploy/env/production.env.example deploy/env/production.env
@@ -92,7 +92,7 @@ sudo certbot --nginx -d app.your-domain.com
 When you **push or merge to `production`**, GitHub Actions will:
 
 1. Build the Docker image  
-2. Push to `ghcr.io/branchdev110/linkedin-faciliator:production`  
+2. Push to `ghcr.io/branchdev110/linkedin-facilitator:production`  
 3. SSH into the VPS, `git pull`, pull the new image, and restart the stack  
 
 ### One-time setup checklist

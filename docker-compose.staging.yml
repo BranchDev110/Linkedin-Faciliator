@@ -4,7 +4,7 @@
 
 services:
   app:
-    image: ${APP_IMAGE:-ghcr.io/branchdev110/linkedin-faciliator:staging}
+    image: ${APP_IMAGE:-ghcr.io/branchdev110/linkedin-facilitator:staging}
     container_name: li-facilitator-staging-app
     env_file:
       - ${ENV_FILE:-./deploy/env/staging.env}

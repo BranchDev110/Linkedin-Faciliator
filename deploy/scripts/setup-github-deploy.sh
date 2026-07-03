@@ -2,7 +2,7 @@
 # Print one-time CI/CD setup steps for GitHub Actions → VPS deploy.
 set -euo pipefail
 
-REPO="${1:-BranchDev110/Linkedin-Faciliator}"
+REPO="${1:-BranchDev110/Linkedin-Facilitator}"
 APP_PATH="${2:-/opt/li-facilitator-production}"
 
 cat <<EOF
@@ -77,7 +77,7 @@ VPS app path: ${APP_PATH}
 6) Verify manual deploy once on VPS
 
    cd ${APP_PATH}
-   export APP_IMAGE=ghcr.io/branchdev110/linkedin-faciliator:production
+   export APP_IMAGE=ghcr.io/branchdev110/linkedin-facilitator:production
    bash deploy/scripts/remote-deploy.sh production
    curl http://127.0.0.1:3002/api/health
 
@@ -91,7 +91,7 @@ VPS app path: ${APP_PATH}
 
    Each push to production will:
      1. Build Docker image
-     2. Push to ghcr.io/branchdev110/linkedin-faciliator:production
+     2. Push to ghcr.io/branchdev110/linkedin-facilitator:production
      3. SSH to VPS → git pull → docker pull → restart app
 
 ================================================================================
