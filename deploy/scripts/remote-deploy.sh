@@ -16,6 +16,7 @@ if [[ -n "${APP_IMAGE}" ]]; then
   echo "Pulling ${APP_IMAGE} ..."
   docker compose "${COMPOSE_FILES[@]}" pull app
   docker compose "${COMPOSE_FILES[@]}" up -d --no-build --pull always --force-recreate --remove-orphans
+  docker compose "${COMPOSE_FILES[@]}" exec -T nginx nginx -s reload >/dev/null 2>&1 || true
 else
   echo "Building locally for ${ENVIRONMENT} ..."
   docker compose "${COMPOSE_FILES[@]}" up -d --build --force-recreate --remove-orphans
