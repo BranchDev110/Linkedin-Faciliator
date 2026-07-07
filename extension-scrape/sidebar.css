@@ -150,6 +150,21 @@ html, body {
   word-break: break-word;
 }
 
+.job-company-row {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.job-posted-at {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 .job-link {
   display: inline-block;
   font-size: 12px;

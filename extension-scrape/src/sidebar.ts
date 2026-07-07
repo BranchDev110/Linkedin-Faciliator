@@ -14,6 +14,7 @@ const emptyState = document.getElementById('empty-state') as HTMLDivElement;
 const jobPanel = document.getElementById('job-panel') as HTMLDivElement;
 const jobTitleEl = document.getElementById('job-title') as HTMLHeadingElement;
 const jobCompanyEl = document.getElementById('job-company') as HTMLParagraphElement;
+const jobPostedAtEl = document.getElementById('job-posted-at') as HTMLSpanElement;
 const companyAvatarEl = document.getElementById('company-avatar') as HTMLDivElement;
 const jobLinkEl = document.getElementById('job-link') as HTMLAnchorElement;
 const jdTextEl = document.getElementById('jd-text') as HTMLTextAreaElement;
@@ -123,6 +124,14 @@ function render(): void {
   jobTitleEl.textContent = currentJob.jobTitle || 'Untitled position';
   jobCompanyEl.textContent = currentJob.companyName || 'Unknown company';
 
+  if (currentJob.postedAt) {
+    jobPostedAtEl.textContent = currentJob.postedAt;
+    jobPostedAtEl.classList.remove('hidden');
+  } else {
+    jobPostedAtEl.textContent = '';
+    jobPostedAtEl.classList.add('hidden');
+  }
+
   setCompanyAvatar(currentJob.companyLogoUrl, currentJob.companyName || '');
   setJobLink(currentJob.realJobUrl?.trim() || currentJob.linkedInJobUrl?.trim());
 
@@ -192,6 +201,7 @@ async function sendToApi(): Promise<void> {
     jobDescription: description,
     jobLink,
     source: 'linkedin',
+    postedAt: currentJob.postedAt || undefined,
   };
 
   submitting = true;

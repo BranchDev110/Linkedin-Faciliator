@@ -22,6 +22,7 @@ export interface ExtractedJob {
   realJobUrl?: string;
   companyLogoUrl?: string;
   applyMethod?: JobApplyMethod;
+  postedAt?: string;
 }
 
 export type JobApplyMethod = 'easy' | 'offsite' | 'unknown';
@@ -805,6 +806,28 @@ function getLinkedInTopcardJobId(): string | null {
   return null;
 }
 
+function extractPostedAt(root: Element): string {
+  const spans = queryDeepAll('span.posted-time-ago__text', root);
+  for (const span of spans) {
+    // Walk up a few levels to capture context like
+    // "Reposted 2 days ago" or "Posted 1 week ago".
+    let context = '';
+    let node: Element | null = span;
+    for (let depth = 0; depth < 4 && node; depth++) {
+      const text = cleanText(getDeepText(node));
+      if (text && text.toLowerCase().includes('ago')) {
+        context = text;
+        break;
+      }
+      node = node.parentElement;
+    }
+
+    const text = context || cleanText(getDeepText(span));
+    if (text) return text;
+  }
+  return '';
+}
+
 function extractJobTitle(root: Element): string {
   // Most reliable: the topcard title anchor's <h2> child text.
   // LinkedIn re-renders this on every SPA job navigation.
@@ -1173,6 +1196,7 @@ export async function extractJob(options: ExtractJobOptions = {}): Promise<Extra
   const location = extractLocation(root);
   const companyLogoUrl = extractCompanyLogoUrl(root);
   const jobDescription = extractJobDescription(root);
+  const postedAt = extractPostedAt(root);
 
   if (!jobTitle && !companyName && !jobDescription) return null;
 
@@ -1202,5 +1226,6 @@ export async function extractJob(options: ExtractJobOptions = {}): Promise<Extra
     realJobUrl: realJobUrl || undefined,
     companyLogoUrl: companyLogoUrl || undefined,
     applyMethod,
+    postedAt: postedAt || undefined,
   };
 }
