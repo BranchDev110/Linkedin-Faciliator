@@ -37,7 +37,7 @@ if (!shouldInitialize()) {
     notifyTimer = setTimeout(() => {
       if (!isExtensionRuntimeValid()) return;
 
-      void extractJob({ allowVoyagerFetch: false }).then((job) => {
+      void extractJob({ allowVoyagerFetch: true }).then((job) => {
         if (job) {
           chrome.runtime.sendMessage({ type: 'JOB_DETECTED', job }).catch(() => {});
         }

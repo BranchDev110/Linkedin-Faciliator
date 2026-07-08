@@ -807,7 +807,7 @@ function getLinkedInTopcardJobId(): string | null {
 }
 
 function extractPostedAt(root: Element): string {
-  const spans = queryDeepAll('span.posted-time-ago__text', root);
+  const spans = queryDeepAll('span.tvm__text--positive', root);
   for (const span of spans) {
     // Walk up a few levels to capture context like
     // "Reposted 2 days ago" or "Posted 1 week ago".
