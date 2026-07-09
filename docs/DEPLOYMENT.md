@@ -71,7 +71,7 @@ Use a PAT with **`read:packages`**.
 ```bash
 cd /opt/li-facilitator-production
 bash deploy/scripts/remote-deploy.sh production
-curl http://127.0.0.1:3002/api/health
+curl http://127.0.0.1:3001/api/health
 ```
 
 After CI is configured, future deploys happen automatically when you merge to **`production`**.
