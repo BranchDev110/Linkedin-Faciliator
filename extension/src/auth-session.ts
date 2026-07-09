@@ -34,9 +34,15 @@ export async function clearAuthStorage(): Promise<void> {
   await markSignedOut();
 }
 
+export interface PersistAuthSessionOptions {
+  /** Accept a web-provided token when the API cannot be reached from the worker. */
+  trustWhenUnavailable?: boolean;
+}
+
 export async function persistAuthSession(
   token: string,
   email = '',
+  options: PersistAuthSessionOptions = {},
 ): Promise<{ token: string; email: string } | null> {
   if (!token?.trim()) return null;
 
@@ -63,6 +69,18 @@ export async function persistAuthSession(
         token: existing.token,
         email: existing.email || email,
       };
+    }
+
+    // Web login already proved the token works in the browser tab. Trust it
+    // when the service worker cannot reach the API (common with self-signed TLS).
+    if (options.trustWhenUnavailable) {
+      const nextEmail = email || existing.email || '';
+      await storageSet({
+        token,
+        email: nextEmail,
+        [SIGNED_OUT_KEY]: false,
+      });
+      return { token, email: nextEmail };
     }
 
     return null;

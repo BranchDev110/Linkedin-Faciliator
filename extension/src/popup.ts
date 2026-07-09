@@ -671,7 +671,17 @@ function setupSessionRefresh() {
       return;
     }
 
-    if (changes.token?.newValue || changes.email?.newValue) {
+    if (
+      changes.token?.newValue ||
+      changes.email?.newValue ||
+      changes.signedOut?.newValue === false
+    ) {
+      scheduleAuthRefresh(false);
+    }
+  });
+
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message.type === 'AUTH_SESSION_UPDATED') {
       scheduleAuthRefresh(false);
     }
   });

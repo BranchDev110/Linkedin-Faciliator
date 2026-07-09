@@ -26,6 +26,39 @@ if (!shouldInitialize()) {
   bindVoyagerJobPostingListener();
 
   let notifyTimer: ReturnType<typeof setTimeout> | null = null;
+  let lastPublishedKey = '';
+  let lastPublishedDescriptionLength = 0;
+
+  function jobPublishKey(job: NonNullable<Awaited<ReturnType<typeof extractJob>>>): string {
+    return (
+      job.linkedInJobId?.trim() ||
+      job.linkedInJobUrl?.trim() ||
+      job.jobUrl?.trim() ||
+      `${job.jobTitle}|${job.companyName}`
+    );
+  }
+
+  function shouldPublishJob(job: NonNullable<Awaited<ReturnType<typeof extractJob>>>): boolean {
+    const key = jobPublishKey(job);
+    const descriptionLength = job.jobDescription?.trim().length || 0;
+
+    if (!key) {
+      return descriptionLength > 0;
+    }
+
+    if (key !== lastPublishedKey) {
+      lastPublishedKey = key;
+      lastPublishedDescriptionLength = descriptionLength;
+      return true;
+    }
+
+    if (descriptionLength > lastPublishedDescriptionLength + 30) {
+      lastPublishedDescriptionLength = descriptionLength;
+      return true;
+    }
+
+    return false;
+  }
 
   function notifyJobUpdate() {
     if (!isExtensionRuntimeValid()) {
@@ -38,9 +71,8 @@ if (!shouldInitialize()) {
       if (!isExtensionRuntimeValid()) return;
 
       void extractJob({ allowVoyagerFetch: true }).then((job) => {
-        if (job) {
-          chrome.runtime.sendMessage({ type: 'JOB_DETECTED', job }).catch(() => {});
-        }
+        if (!job || !shouldPublishJob(job)) return;
+        chrome.runtime.sendMessage({ type: 'JOB_DETECTED', job }).catch(() => {});
       });
     }, 500);
   }
@@ -54,6 +86,8 @@ if (!shouldInitialize()) {
     const currentUrl = getCurrentUrl();
     if (w[LAST_URL_KEY] === currentUrl) return;
     w[LAST_URL_KEY] = currentUrl;
+    lastPublishedKey = '';
+    lastPublishedDescriptionLength = 0;
     notifyJobUpdate();
   }
 
