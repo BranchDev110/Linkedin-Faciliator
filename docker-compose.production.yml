@@ -7,6 +7,9 @@ services:
     container_name: li-facilitator-production-app
     env_file:
       - ${ENV_FILE:-./deploy/env/production.env}
+    environment:
+      # Keep production DB name even if a local .env is also present.
+      MONGODB_URI: mongodb://mongo:27017/li-facilitator-production
 
   mongo:
     container_name: li-facilitator-production-mongo

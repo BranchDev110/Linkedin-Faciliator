@@ -24,7 +24,11 @@ function loadRootEnv() {
 
 const env = loadRootEnv();
 const SENDER = env.SCRAPE_SENDER || 'li-job-scraper';
-const API_ENDPOINT = env.SCRAPE_API_ENDPOINT || 'http://localhost:8979/api/expose/jobs';
+const API_ENDPOINT =
+  env.SCRAPE_API_ENDPOINT ||
+  'https://disyllabic-camille-tardily.ngrok-free.dev/api/expose/jobs';
+const CHECK_API_ENDPOINT =
+  env.SCRAPE_CHECK_API_ENDPOINT || `${API_ENDPOINT.replace(/\/$/, '')}/check`;
 
 function originFromUrl(url) {
   try {
@@ -85,6 +89,7 @@ function copyStatic() {
 const define = {
   __SENDER__: JSON.stringify(SENDER),
   __API_ENDPOINT__: JSON.stringify(API_ENDPOINT),
+  __CHECK_API_ENDPOINT__: JSON.stringify(CHECK_API_ENDPOINT),
 };
 
 const sharedBuildOptions = {
@@ -119,7 +124,7 @@ async function build() {
     const contentCtx = await esbuild.context(contentScriptBuild);
     await Promise.all([moduleCtx.watch(), contentCtx.watch()]);
     console.log(
-      `Watching extension-scrape files (SENDER=${SENDER}, API_ENDPOINT=${API_ENDPOINT})...`,
+      `Watching extension-scrape files (SENDER=${SENDER}, API_ENDPOINT=${API_ENDPOINT}, CHECK_API_ENDPOINT=${CHECK_API_ENDPOINT})...`,
     );
   } else {
     await Promise.all([
@@ -127,7 +132,7 @@ async function build() {
       esbuild.build(contentScriptBuild),
     ]);
     console.log(
-      `extension-scrape built to dist/ (SENDER=${SENDER}, API_ENDPOINT=${API_ENDPOINT})`,
+      `extension-scrape built to dist/ (SENDER=${SENDER}, API_ENDPOINT=${API_ENDPOINT}, CHECK_API_ENDPOINT=${CHECK_API_ENDPOINT})`,
     );
   }
 }

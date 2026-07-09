@@ -26,10 +26,14 @@ Edit the root `.env`:
 
 ```
 SCRAPE_SENDER=li-job-scraper
-SCRAPE_API_ENDPOINT=http://localhost:8979/api/expose/jobs
+SCRAPE_API_ENDPOINT=https://disyllabic-camille-tardily.ngrok-free.dev/api/expose/jobs
+# Optional override (defaults to SCRAPE_API_ENDPOINT + /check):
+# SCRAPE_CHECK_API_ENDPOINT=https://disyllabic-camille-tardily.ngrok-free.dev/api/expose/jobs/check
 ```
 
 Both values are baked into the bundle at build time via esbuild `define`.
+
+When a LinkedIn job is selected, the sidebar POSTs to `/api/expose/jobs/check` with `{ "jobID": "linkedin-<numericId>" }`. If the job already exists, the **Scrape** button is disabled. When scraping, the same `jobID` is included in the POST body to `/api/expose/jobs`.
 
 ## Build
 
@@ -66,5 +70,6 @@ In production with `NODE_ENV=production` and `WEB_URL` set, the allowlist is res
 | `src/extract-job.ts` | DOM extraction (copied from `extension/`) |
 | `src/linkedin-voyager*.ts` | Voyager hook (kept for completeness; only used passively) |
 | `src/sidebar-host.ts` | Iframe host with toggle pill |
-| `src/sidebar.ts` | Sidebar app: render extracted job, send to API, toast |
-| `src/config.ts` | `SENDER` + `API_ENDPOINT` from build-time defines |
+| `src/sidebar.ts` | Sidebar app: render extracted job, check if recorded, send to API, toast |
+| `src/api.ts` | Scrape + check API helpers (`jobID`, ngrok headers) |
+| `src/config.ts` | `SENDER`, `API_ENDPOINT`, and `CHECK_API_ENDPOINT` from build-time defines |

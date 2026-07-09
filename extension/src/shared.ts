@@ -81,15 +81,23 @@ export async function signOut(): Promise<void> {
 }
 
 export function openLoginPage() {
-  chrome.tabs.create({
-    url: `${WEB_URL}/login?source=extension`,
-  });
+  chrome.runtime
+    .sendMessage({ type: 'OPEN_AUTH_TAB', path: '/login?source=extension' })
+    .catch(() => {
+      chrome.tabs.create({
+        url: `${WEB_URL}/login?source=extension`,
+      });
+    });
 }
 
 export function openSignUpPage() {
-  chrome.tabs.create({
-    url: `${WEB_URL}/signup?source=extension`,
-  });
+  chrome.runtime
+    .sendMessage({ type: 'OPEN_AUTH_TAB', path: '/signup?source=extension' })
+    .catch(() => {
+      chrome.tabs.create({
+        url: `${WEB_URL}/signup?source=extension`,
+      });
+    });
 }
 
 /** @deprecated Use openLoginPage */

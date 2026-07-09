@@ -26,8 +26,9 @@ export default function LoginPage() {
     try {
       const user = await signIn(email, password);
 
+      // Fire-and-forget: never block redirect on extension sync.
       if (fromExtension) {
-        await waitForExtensionSync();
+        void waitForExtensionSync();
       }
 
       showToast(

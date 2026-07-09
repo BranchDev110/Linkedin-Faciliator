@@ -4,7 +4,11 @@ import {
   TOKEN_KEY,
 } from './auth-session';
 
-export function waitForExtensionSync(timeoutMs = 2500): Promise<boolean> {
+/**
+ * Best-effort sync of the web session into the Chrome extension.
+ * Always resolves quickly — never blocks navigation on extension availability.
+ */
+export function waitForExtensionSync(timeoutMs = 1500): Promise<boolean> {
   return new Promise((resolve) => {
     let settled = false;
 
@@ -24,10 +28,16 @@ export function waitForExtensionSync(timeoutMs = 2500): Promise<boolean> {
     const timer = window.setTimeout(() => finish(false), timeoutMs);
     window.addEventListener(EXTENSION_SYNCED_EVENT, onSynced);
 
+    const token = localStorage.getItem(TOKEN_KEY) || '';
+    if (!token) {
+      finish(false);
+      return;
+    }
+
     window.postMessage(
       {
         type: 'LI_FACILITATOR_AUTH',
-        token: localStorage.getItem(TOKEN_KEY) || '',
+        token,
         email: localStorage.getItem(EMAIL_KEY) || '',
       },
       window.location.origin,

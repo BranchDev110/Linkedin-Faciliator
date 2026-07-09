@@ -15,37 +15,18 @@ function isSignedOutOnWeb(): boolean {
   }
 }
 
-let tornDown = false;
-
-function markBridgeDead() {
-  tornDown = true;
+function clearBridgeDead() {
   try {
-    sessionStorage.setItem(BRIDGE_DEAD_KEY, '1');
+    sessionStorage.removeItem(BRIDGE_DEAD_KEY);
   } catch {
     // ignore
   }
-}
-
-function isBridgeActive(): boolean {
-  if (tornDown) return false;
-  try {
-    if (sessionStorage.getItem(BRIDGE_DEAD_KEY) === '1') {
-      tornDown = true;
-      return false;
-    }
-  } catch {
-    // ignore
-  }
-  return true;
 }
 
 function canUseExtensionRuntime(): boolean {
-  if (!isBridgeActive()) return false;
-
   try {
     return Boolean(chrome.runtime && chrome.runtime.id);
   } catch {
-    markBridgeDead();
     return false;
   }
 }
@@ -57,24 +38,17 @@ function safeSendMessage(
     return Promise.resolve(undefined);
   }
 
+  // Always retry messaging — service workers wake on demand and a transient
+  // failure should not permanently disable the bridge for this tab.
   try {
     return chrome.runtime
       .sendMessage(message)
       .then((response) => {
-        tornDown = false;
-        try {
-          sessionStorage.removeItem(BRIDGE_DEAD_KEY);
-        } catch {
-          // ignore
-        }
+        clearBridgeDead();
         return response as Record<string, unknown> | undefined;
       })
-      .catch(() => {
-        markBridgeDead();
-        return undefined;
-      });
+      .catch(() => undefined);
   } catch {
-    markBridgeDead();
     return Promise.resolve(undefined);
   }
 }
@@ -125,12 +99,16 @@ async function validateTokenWithApi(token: string): Promise<boolean> {
 }
 
 async function notifyExtensionAfterSignIn(): Promise<boolean> {
-  if (!canUseExtensionRuntime()) return false;
+  if (!canUseExtensionRuntime()) {
+    dispatchExtensionSynced(false);
+    return false;
+  }
 
   const token = localStorage.getItem(TOKEN_KEY);
   const email = localStorage.getItem(EMAIL_KEY) || '';
 
   if (!token) {
+    dispatchExtensionSynced(false);
     return false;
   }
 
@@ -192,9 +170,22 @@ function onAuthClear() {
 
 function onWindowMessage(event: MessageEvent) {
   if (event.origin !== window.location.origin) return;
-  if (event.data?.type === 'LI_FACILITATOR_AUTH') {
-    onAuthSync();
+  if (event.data?.type !== 'LI_FACILITATOR_AUTH') return;
+
+  // Explicit login postMessage always clears the signed-out guard and syncs.
+  if (typeof event.data?.token === 'string' && event.data.token) {
+    try {
+      sessionStorage.removeItem(SIGNED_OUT_KEY);
+    } catch {
+      // ignore
+    }
+    localStorage.setItem(TOKEN_KEY, event.data.token);
+    if (typeof event.data.email === 'string') {
+      localStorage.setItem(EMAIL_KEY, event.data.email);
+    }
   }
+
+  void notifyExtensionAfterSignIn();
 }
 
 window.addEventListener('message', onWindowMessage);
@@ -202,15 +193,12 @@ window.addEventListener(AUTH_SYNC_EVENT, onAuthSync);
 window.addEventListener(AUTH_CLEAR_EVENT, onAuthClear);
 
 if (canUseExtensionRuntime()) {
-  const fromExtension =
-    new URLSearchParams(window.location.search).get('source') === 'extension';
+  clearBridgeDead();
 
   if (isSignedOutOnWeb()) {
     // Do not pull stale extension sessions into a signed-out web tab.
   } else if (localStorage.getItem(TOKEN_KEY)) {
     syncExistingWebSessionToExtension();
-  } else if (fromExtension) {
-    void requestAuthFromExtension();
   } else {
     void requestAuthFromExtension();
   }

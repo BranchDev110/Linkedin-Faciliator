@@ -79,7 +79,7 @@ JWT_SECRET=your-secret-key
 JWT_EXPIRES_IN=7d
 
 OPENAI_API_KEY=sk-...
-# OPENAI_MODEL=gpt-4o-mini
+# OPENAI_MODEL=gpt-5.4-mini
 ```
 
 For the web app:

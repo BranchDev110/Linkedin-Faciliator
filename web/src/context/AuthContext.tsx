@@ -262,10 +262,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const beginFreshSignIn = () => {
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(EMAIL_KEY);
+    // Clear only the signed-out guard before login. Do NOT wipe the token yet —
+    // if login fails, or if a concurrent restore/bootstrap races, wiping first
+    // can leave ProtectedRoute with no token and bounce back to /login.
     clearSignedOutFlag();
-    invalidateSession();
   };
 
   const signIn = async (email: string, password: string): Promise<AuthUser> => {

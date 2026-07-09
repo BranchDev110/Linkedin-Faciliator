@@ -7,11 +7,17 @@ services:
     depends_on:
       mongo:
         condition: service_healthy
+    # Secrets/URLs come from env_file (not interpolated environment), so an empty
+    # host shell var cannot wipe values from deploy/env/production.env.
+    env_file:
+      - path: .env
+        required: false
     environment:
       NODE_ENV: production
       PORT: 3001
+      # Always use the compose network hostname — never host .env's 127.0.0.1.
+      MONGODB_URI: mongodb://mongo:27017/li-facilitator
       STORAGE_ROOT: /app/storage
-      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
     expose:
       - "3001"
     volumes:

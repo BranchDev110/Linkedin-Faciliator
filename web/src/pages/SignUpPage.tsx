@@ -34,7 +34,7 @@ export default function SignUpPage() {
       const user = await signUp(email, password);
 
       if (fromExtension) {
-        await waitForExtensionSync();
+        void waitForExtensionSync();
       }
 
       showToast('Account created. Waiting for admin approval.');

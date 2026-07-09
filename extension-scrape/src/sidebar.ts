@@ -1,20 +1,17 @@
-import { SENDER, API_ENDPOINT } from './config';
+import { SENDER } from './config';
+import {
+  checkJobExists,
+  formatJobId,
+  sendJobToScrapeApi,
+} from './api';
 import type { ExtractedJob } from './extract-job';
-
-interface ScrapeResponse {
-  success?: boolean;
-  created?: boolean;
-  duplicate?: boolean;
-  id?: string;
-  jobLink?: string;
-  error?: string;
-}
 
 const emptyState = document.getElementById('empty-state') as HTMLDivElement;
 const jobPanel = document.getElementById('job-panel') as HTMLDivElement;
 const jobTitleEl = document.getElementById('job-title') as HTMLHeadingElement;
 const jobCompanyEl = document.getElementById('job-company') as HTMLParagraphElement;
 const jobPostedAtEl = document.getElementById('job-posted-at') as HTMLSpanElement;
+const jobRecordedNotice = document.getElementById('job-recorded-notice') as HTMLDivElement;
 const companyAvatarEl = document.getElementById('company-avatar') as HTMLDivElement;
 const jobLinkEl = document.getElementById('job-link') as HTMLAnchorElement;
 const jdTextEl = document.getElementById('jd-text') as HTMLTextAreaElement;
@@ -23,9 +20,13 @@ const toastEl = document.getElementById('toast') as HTMLDivElement;
 
 let currentJob: ExtractedJob | null = null;
 let submitting = false;
+let checkingJob = false;
+let jobExistsOnServer = false;
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 let currentJobKey = '';
 const sentJobKeys = new Set<string>();
+const jobExistsCache = new Map<string, boolean>();
+const checkInFlight = new Map<string, Promise<boolean>>();
 
 function isExtensionContextValid(): boolean {
   try {
@@ -85,28 +86,64 @@ function showError(message: string): void {
   showToast(message, 'error');
 }
 
+function isJobAlreadyHandled(): boolean {
+  return jobExistsOnServer || (currentJobKey !== '' && sentJobKeys.has(currentJobKey));
+}
+
 function canSend(): boolean {
   if (!currentJob) return false;
-  if (submitting) return false;
+  if (submitting || checkingJob) return false;
+  if (isJobAlreadyHandled()) return false;
+
   const description = currentJob.jobDescription?.trim() || '';
   if (description.length === 0) return false;
+
   const jobLink = currentJob.realJobUrl?.trim() || currentJob.linkedInJobUrl?.trim() || '';
   if (!/^https?:\/\//.test(jobLink)) return false;
-  if (currentJobKey && sentJobKeys.has(currentJobKey)) return false;
+
   return true;
 }
 
+function updateRecordedNotice(): void {
+  if (checkingJob) {
+    jobRecordedNotice.textContent = 'Checking if this job is already recorded…';
+    jobRecordedNotice.className = 'job-recorded-notice is-checking';
+    jobRecordedNotice.classList.remove('hidden');
+    return;
+  }
+
+  if (jobExistsOnServer || (currentJobKey && sentJobKeys.has(currentJobKey))) {
+    jobRecordedNotice.textContent = 'This job is already recorded on the server.';
+    jobRecordedNotice.className = 'job-recorded-notice is-recorded';
+    jobRecordedNotice.classList.remove('hidden');
+    return;
+  }
+
+  jobRecordedNotice.textContent = '';
+  jobRecordedNotice.classList.add('hidden');
+}
+
 function updateSendButton(): void {
+  updateRecordedNotice();
+
   if (submitting) {
     btnSend.disabled = true;
     btnSend.textContent = 'Sending…';
     return;
   }
-  if (currentJobKey && sentJobKeys.has(currentJobKey)) {
+
+  if (checkingJob) {
     btnSend.disabled = true;
-    btnSend.textContent = 'Scrape';
+    btnSend.textContent = 'Checking…';
     return;
   }
+
+  if (isJobAlreadyHandled()) {
+    btnSend.disabled = true;
+    btnSend.textContent = 'Already recorded';
+    return;
+  }
+
   btnSend.disabled = !canSend();
   btnSend.textContent = 'Scrape';
 }
@@ -140,14 +177,102 @@ function render(): void {
   updateSendButton();
 }
 
+async function refreshJobRecordedStatus(job: ExtractedJob): Promise<void> {
+  const jobID = formatJobId(job.linkedInJobId);
+  if (!jobID) {
+    jobExistsOnServer = false;
+    checkingJob = false;
+    updateSendButton();
+    return;
+  }
+
+  if (jobExistsCache.has(jobID)) {
+    jobExistsOnServer = jobExistsCache.get(jobID)!;
+    if (jobExistsOnServer && currentJobKey) {
+      sentJobKeys.add(currentJobKey);
+    }
+    checkingJob = false;
+    updateSendButton();
+    return;
+  }
+
+  const inFlight = checkInFlight.get(jobID);
+  if (inFlight) {
+    checkingJob = true;
+    updateSendButton();
+    try {
+      const exists = await inFlight;
+      if (formatJobId(currentJob?.linkedInJobId) !== jobID) {
+        return;
+      }
+      jobExistsOnServer = exists;
+      if (exists && currentJobKey) {
+        sentJobKeys.add(currentJobKey);
+      }
+    } finally {
+      if (formatJobId(currentJob?.linkedInJobId) === jobID) {
+        checkingJob = false;
+        updateSendButton();
+      }
+    }
+    return;
+  }
+
+  checkingJob = true;
+  updateSendButton();
+
+  const request = checkJobExists(jobID)
+    .then((result) => {
+      const exists = result?.success === true && result.exists === true;
+      jobExistsCache.set(jobID, exists);
+      return exists;
+    })
+    .catch(() => {
+      jobExistsCache.set(jobID, false);
+      return false;
+    });
+
+  checkInFlight.set(jobID, request);
+
+  try {
+    const exists = await request;
+    if (formatJobId(currentJob?.linkedInJobId) !== jobID) {
+      return;
+    }
+    jobExistsOnServer = exists;
+    if (exists && currentJobKey) {
+      sentJobKeys.add(currentJobKey);
+    }
+  } finally {
+    checkInFlight.delete(jobID);
+    if (formatJobId(currentJob?.linkedInJobId) === jobID) {
+      checkingJob = false;
+      updateSendButton();
+    }
+  }
+}
+
 function setJob(job: ExtractedJob): void {
   const nextKey = jobKey(job);
-  // Different job (or first time) — reset per-job sent state.
-  if (nextKey !== currentJobKey) {
+  const sameJob = nextKey === currentJobKey;
+
+  if (!sameJob) {
     currentJobKey = nextKey;
+    jobExistsOnServer = false;
   }
+
   currentJob = job;
   render();
+
+  if (!sameJob) {
+    void refreshJobRecordedStatus(job);
+  } else {
+    const jobID = formatJobId(job.linkedInJobId);
+    if (jobID && jobExistsCache.has(jobID)) {
+      jobExistsOnServer = jobExistsCache.get(jobID)!;
+      updateSendButton();
+    }
+  }
 
   try {
     chrome.runtime.sendMessage({ type: 'OPEN_SIDEBAR' }).catch(() => {});
@@ -177,12 +302,13 @@ function setupJobListener(): void {
 }
 
 async function sendToApi(): Promise<void> {
-  if (!currentJob || submitting) return;
-  if (currentJobKey && sentJobKeys.has(currentJobKey)) return;
+  if (!currentJob || submitting || checkingJob) return;
+  if (isJobAlreadyHandled()) return;
 
   const jobLink =
     currentJob.realJobUrl?.trim() || currentJob.linkedInJobUrl?.trim() || '';
   const description = currentJob.jobDescription?.trim() || '';
+  const jobID = formatJobId(currentJob.linkedInJobId);
 
   if (!description) {
     showError('No job description to send yet.');
@@ -202,27 +328,21 @@ async function sendToApi(): Promise<void> {
     jobLink,
     source: 'linkedin',
     postedAt: currentJob.postedAt || undefined,
+    ...(jobID ? { jobID } : {}),
   };
 
   submitting = true;
   updateSendButton();
 
   try {
-    const response = await fetch(API_ENDPOINT, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
+    const { ok, status, statusText, body } = await sendJobToScrapeApi(payload);
 
-    let body: ScrapeResponse | null = null;
-    try {
-      body = (await response.json()) as ScrapeResponse;
-    } catch {
-      body = null;
-    }
-
-    if (response.ok && body?.success !== false) {
+    if (ok && body?.success !== false) {
       if (currentJobKey) sentJobKeys.add(currentJobKey);
+      jobExistsOnServer = true;
+      if (jobID) {
+        jobExistsCache.set(jobID, true);
+      }
       if (body?.duplicate) {
         showToast('Already in catalog — duplicate detected.', 'success');
       } else if (body?.created) {
@@ -232,7 +352,7 @@ async function sendToApi(): Promise<void> {
       }
     } else {
       const message =
-        body?.error || `Server responded with ${response.status} ${response.statusText}`;
+        body?.error || `Server responded with ${status} ${statusText}`;
       showError(message);
     }
   } catch (error) {

@@ -122,7 +122,33 @@ async function syncAuthFromActiveWebTab(): Promise<{ token: string; email: strin
     return null;
   }
 
-  return persistAuthSession(data.token, data.email);
+  return persistAuthSession(data.token, data.email, { trustWhenUnavailable: true });
+}
+
+function notifyAuthSessionUpdated(): void {
+  chrome.runtime.sendMessage({ type: 'AUTH_SESSION_UPDATED' }).catch(() => {
+    // Sidebar or popup may not be open yet.
+  });
+}
+
+async function trySyncAuthFromWebTab(tabId: number): Promise<boolean> {
+  // Intentionally ignore the extension signedOut flag here: a successful web
+  // login must be able to re-authenticate the extension after a prior sign-out.
+  const data = await readTokenFromTab(tabId);
+  if (!data?.token) {
+    return false;
+  }
+
+  const validated = await persistAuthSession(data.token, data.email, {
+    trustWhenUnavailable: true,
+  });
+  if (!validated) {
+    return false;
+  }
+
+  await syncAuthToAllWebTabs(validated.token, validated.email);
+  notifyAuthSessionUpdated();
+  return true;
 }
 
 async function resolveAuthSession(): Promise<{ token: string; email: string } | null> {
@@ -309,9 +335,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         return;
       }
 
+      // Web login already validated the token in the browser. Trust it even when
+      // the service worker cannot reach the API (self-signed TLS, etc.).
       const validated = await persistAuthSession(
         message.token,
         message.email || '',
+        { trustWhenUnavailable: true },
       );
       if (!validated) {
         const recheck = await validateAuthToken(message.token);
@@ -323,6 +352,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       }
 
       await syncAuthToAllWebTabs(validated.token, validated.email);
+      notifyAuthSessionUpdated();
       sendResponse({ success: true, ...validated });
     })();
     return true;
@@ -428,6 +458,19 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === 'OPEN_AUTH_TAB') {
+    (async () => {
+      const rawPath =
+        typeof message.path === 'string' ? message.path : '/login?source=extension';
+      const path = rawPath.startsWith('/') ? rawPath : `/${rawPath}`;
+      const url = `${WEB_URL.replace(/\/$/, '')}${path}`;
+
+      await chrome.tabs.create({ url });
+      sendResponse({ success: true });
+    })();
+    return true;
+  }
+
   if (message.type === 'OPEN_WEB_APP') {
     (async () => {
       const validated = await resolveAuthSession();
@@ -485,13 +528,25 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
     const tab = await chrome.tabs.get(tabId);
     if (!isAppWebUrl(tab.url)) return;
 
-    const validated = await syncAuthFromActiveWebTab();
-    if (validated) {
-      await syncAuthToAllWebTabs(validated.token, validated.email);
+    const synced = await trySyncAuthFromWebTab(tabId);
+    if (!synced) {
+      const validated = await syncAuthFromActiveWebTab();
+      if (validated) {
+        await syncAuthToAllWebTabs(validated.token, validated.email);
+        notifyAuthSessionUpdated();
+      }
     }
   } catch {
     // Tab may not be accessible.
   }
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status !== 'complete' || !isAppWebUrl(tab.url)) {
+    return;
+  }
+
+  void trySyncAuthFromWebTab(tabId);
 });
 
 async function toggleSidebarOnTab(tabId: number): Promise<void> {
