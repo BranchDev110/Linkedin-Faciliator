@@ -1,3 +1,4 @@
+import { apiFetch } from './api-fetch';
 import { API_URL } from './config';
 
 export interface ValidatedAuthSession {
@@ -46,7 +47,7 @@ export async function validateAuthToken(
   if (!token?.trim()) return { status: 'invalid' };
 
   try {
-    const response = await fetch(resolveApiUrl('/auth/me'), {
+    const response = await apiFetch(resolveApiUrl('/auth/me'), {
       headers: buildHeaders(token),
     });
 

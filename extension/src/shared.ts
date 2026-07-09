@@ -1,3 +1,4 @@
+import { apiFetch } from './api-fetch';
 import { API_URL, WEB_URL } from './config';
 import { resolveApiUrl, validateAuthToken } from './auth-validation';
 import {
@@ -148,7 +149,7 @@ export async function apiRequest<T>(
   const { token: providedToken, ...fetchOptions } = options;
   const token = await getValidToken(providedToken);
 
-  const response = await fetch(resolveApiUrl(path), {
+  const response = await apiFetch(resolveApiUrl(path), {
     ...fetchOptions,
     headers: buildHeaders(token || undefined),
   });
@@ -167,6 +168,11 @@ export async function apiRequest<T>(
   }
 
   if (!response.ok) {
+    if (response.status === 0) {
+      throw new Error(
+        'Cannot reach the API server. Open the dashboard URL in Chrome once to trust the certificate, then retry.',
+      );
+    }
     const error = await response.json().catch(() => ({ message: 'Request failed' }));
     throw new Error(error.message || `HTTP ${response.status}`);
   }
@@ -481,7 +487,7 @@ export async function downloadAuthenticatedFile(
     headers['ngrok-skip-browser-warning'] = 'true';
   }
 
-  const response = await fetch(requestUrl, { headers });
+  const response = await apiFetch(requestUrl, { headers, binary: true });
   if (!response.ok) {
     throw new Error('Failed to download file');
   }

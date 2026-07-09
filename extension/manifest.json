@@ -14,7 +14,7 @@
   "host_permissions": [
     "https://www.linkedin.com/*",
     "https://linkedin.com/*",
-    "https://garden-scrounger-unzip.ngrok-free.dev/*",
+    "https://83.229.67.146:3001/*",
     "http://localhost:5173/*",
     "http://localhost:3001/*",
     "http://localhost:3002/*",
@@ -70,7 +70,7 @@
     },
     {
       "matches": [
-        "https://garden-scrounger-unzip.ngrok-free.dev/*",
+        "https://83.229.67.146:3001/*",
         "http://localhost:5173/*",
         "http://localhost:3001/*",
         "http://localhost:3002/*"

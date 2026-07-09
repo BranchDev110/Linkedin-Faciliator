@@ -18,8 +18,16 @@ function getAllowedOrigins():
 
   const staticOrigins = [webUrl, ...(extraOrigins || [])].filter(Boolean) as string[];
 
+  const allowOrigin = (origin: string | undefined): boolean => {
+    if (!origin) return true;
+    if (origin.startsWith('chrome-extension://')) return true;
+    return staticOrigins.includes(origin);
+  };
+
   if (process.env.NODE_ENV === 'production' && staticOrigins.length > 0) {
-    return staticOrigins;
+    return (origin, callback) => {
+      callback(null, allowOrigin(origin));
+    };
   }
 
   if (process.env.NODE_ENV === 'production') {

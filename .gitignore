@@ -11,5 +11,6 @@ coverage/
 serviceAccountKey.json
 google-credentials.json
 /storage/
+storage.zip
 deploy/env/staging.env
 deploy/env/production.env

@@ -8,6 +8,7 @@ import {
   SIGNED_OUT_KEY,
 } from './auth-session';
 import { extractApplyUrlFromVoyagerPayload } from './linkedin-voyager';
+import type { ProxyFetchResult } from './api-fetch';
 
 const VOYAGER_JOB_POSTINGS_ENDPOINT = (jobId: string) =>
   `https://www.linkedin.com/voyager/api/jobs/jobPostings/${jobId}`;
@@ -207,6 +208,66 @@ async function clearWebAuthFromOpenTabs(): Promise<void> {
   }
 }
 
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
+async function proxyFetchForSidebar(message: {
+  url: string;
+  method?: string;
+  headers?: Record<string, string>;
+  body?: string;
+  binary?: boolean;
+}): Promise<ProxyFetchResult> {
+  const headers: Record<string, string> = { ...(message.headers || {}) };
+
+  if (message.url.includes('ngrok')) {
+    headers['ngrok-skip-browser-warning'] = 'true';
+  }
+
+  try {
+    const response = await fetch(message.url, {
+      method: message.method || 'GET',
+      headers,
+      body: message.body,
+    });
+
+    const contentType = response.headers.get('content-type') || undefined;
+
+    if (message.binary) {
+      const buffer = await response.arrayBuffer();
+      return {
+        ok: response.ok,
+        status: response.status,
+        statusText: response.statusText,
+        bodyBase64: arrayBufferToBase64(buffer),
+        contentType,
+      };
+    }
+
+    return {
+      ok: response.ok,
+      status: response.status,
+      statusText: response.statusText,
+      bodyText: await response.text(),
+      contentType,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      status: 0,
+      statusText: 'Network Error',
+      error: error instanceof Error ? error.message : 'Request failed',
+    };
+  }
+}
+
 async function pushAuthToTab(tabId: number): Promise<void> {
   const validated = await resolveAuthSession();
   if (!validated) return;
@@ -233,6 +294,13 @@ async function pushAuthToTab(tabId: number): Promise<void> {
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message.type === 'PROXY_FETCH') {
+    (async () => {
+      sendResponse(await proxyFetchForSidebar(message));
+    })();
+    return true;
+  }
+
   if (message.type === 'LI_FACILITATOR_AUTH' || message.type === 'SYNC_AUTH_FROM_WEB') {
     (async () => {
       if (!message.token) {
