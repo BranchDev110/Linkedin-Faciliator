@@ -191,7 +191,7 @@ npm run build:extension    # Build extension to extension/dist/
 There is no separate `staging` branch: **`main` is staging.** Develop locally → PR to `main` → when ready, PR `main` → `production` → CI/CD deploys to the VPS.
 
 - [Branching workflow](docs/BRANCHING.md)
-- [Docker + VPS deployment](docs/DEPLOYMENT.md)
+- [Docker + VPS deployment](docs/DEPLOYMENT.md) (host nginx + Certbot for TLS)
 
 Quick local Docker run:
 

@@ -1,0 +1,50 @@
+# Host-nginx reverse proxy config for li-facilitator.
+#
+# nginx runs on the VPS host (NOT in a container). The dockerized app listens
+# on 127.0.0.1:HOST_PORT only — only this nginx can reach it.
+#
+# Install:
+#   sudo cp deploy/nginx/lif-app.conf.example /etc/nginx/sites-available/lif-app.conf
+#   sudo nano /etc/nginx/sites-available/lif-app.conf   # set server_name + proxy_pass port
+#   sudo ln -s /etc/nginx/sites-available/lif-app.conf /etc/nginx/sites-enabled/
+#   sudo nginx -t && sudo systemctl reload nginx
+#
+# Issue a Let's Encrypt cert (DNS A record must already point to the VPS):
+#   sudo certbot --nginx -d app.your-domain.com
+#
+# Certbot edits this file in place to add the listen 443 ssl block and the
+# 80 -> 443 redirect. Keep it as a single-file cert per subdomain.
+
+# Map these to your environment:
+#   - server_name: your public domain (e.g. lif.your-domain.com)
+#   - proxy_pass host:port: must match HOST_PORT in deploy/env/production.env
+#                      (default 3001). Use 127.0.0.1 — never 0.0.0.0.
+
+server {
+    listen 80;
+    server_name app.your-domain.com;
+
+    # Allow uploads (resume DOCX templates can be a few MB).
+    client_max_body_size 25m;
+
+    # Reasonable timeout for AI generation endpoints.
+    proxy_read_timeout 120s;
+    proxy_send_timeout 120s;
+
+    location / {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host  $host;
+    }
+}
+
+# Optional: distinct log files per site so they don't merge into the default ones.
+# Certbot will preserve these access_log/error_log lines when it edits the file.
+# access_log /var/log/nginx/lif-app.access.log;
+# error_log  /var/log/nginx/lif-app.error.log;

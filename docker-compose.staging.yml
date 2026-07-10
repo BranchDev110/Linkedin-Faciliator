@@ -1,6 +1,10 @@
 # Optional local Docker stack for staging (main branch) — not deployed to a VPS.
 # Use with:
 #   docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d --build
+#
+# Nginx is NOT a container — it runs on the VPS host and proxies here in
+# production. Locally you can reach the app at http://127.0.0.1:${HOST_PORT}
+# or run a host nginx with the same upstream if you want to mirror prod.
 
 services:
   app:
@@ -9,7 +13,7 @@ services:
     env_file:
       - ${ENV_FILE:-./deploy/env/staging.env}
     ports:
-      - "${APP_PORT:-3001}:3001"
+      - "127.0.0.1:${HOST_PORT:-3001}:3001"
 
   mongo:
     container_name: li-facilitator-staging-mongo

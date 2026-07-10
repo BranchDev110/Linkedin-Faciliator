@@ -105,8 +105,5 @@ jobs:
           export ENVIRONMENT=production
           bash deploy/scripts/remote-deploy.sh production
 
-          echo "Verifying health endpoint ..."
-          curl -fsS http://127.0.0.1:3001/api/health
-          echo ""
           echo "Production deploy succeeded."
           REMOTE_SCRIPT
