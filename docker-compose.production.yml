@@ -23,8 +23,11 @@ services:
       - "${APP_PORT:-443}:443"
     volumes:
       - ${NGINX_CONF:-./deploy/nginx/li-facilitator-https.conf}:/etc/nginx/conf.d/default.conf:ro
-      - /etc/letsencrypt/live/lif.remotepairnet.net/fullchain.pem:/etc/nginx/certs/cert.pem:ro
-      - /etc/letsencrypt/live/lif.remotepairnet.net/privkey.pem:/etc/nginx/certs/key.pem:ro
+      # Mount cert and key files individually from Let's Encrypt.
+      # /etc/nginx/tls/ is a fresh path inside the container so it never
+      # collides with /etc/nginx/certs/ created on first run.
+      - ${TLS_FULLCHAIN:-/etc/letsencrypt/live/lif.remotepairnet.net/fullchain.pem}:/etc/nginx/tls/fullchain.pem:ro
+      - ${TLS_PRIVKEY:-/etc/letsencrypt/live/lif.remotepairnet.net/privkey.pem}:/etc/nginx/tls/privkey.pem:ro
 
 volumes:
   production_mongo_data:
