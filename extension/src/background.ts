@@ -405,6 +405,35 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === 'DOWNLOAD_RESUME_FILE') {
+    (async () => {
+      const dataUrl = typeof message.dataUrl === 'string' ? message.dataUrl : '';
+      const filename =
+        typeof message.filename === 'string' ? message.filename.trim() : '';
+
+      if (!dataUrl || !filename) {
+        sendResponse({ success: false, error: 'Missing download payload' });
+        return;
+      }
+
+      try {
+        const downloadId = await chrome.downloads.download({
+          url: dataUrl,
+          filename: filename.replace(/\\/g, '/').replace(/^\/+/, ''),
+          conflictAction: 'overwrite',
+          saveAs: false,
+        });
+        sendResponse({ success: Boolean(downloadId), downloadId });
+      } catch (err) {
+        sendResponse({
+          success: false,
+          error: err instanceof Error ? err.message : 'Failed to download file',
+        });
+      }
+    })();
+    return true;
+  }
+
   if (message.type === 'RESUME_FILE_SELECTED') {
     (async () => {
       const validated = await resolveAuthSession();

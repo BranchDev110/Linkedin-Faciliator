@@ -15,6 +15,7 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import { ApplicationsService } from './applications.service';
 import { CreateApplicationDto, MarkApplicationsAppliedDto, UpdateApplicationDto } from './dto/application.dto';
 import { ExtractApplicationSkillsDto } from './dto/extract-skills.dto';
+import { GenerateApplicationAnswerDto } from './dto/generate-answer.dto';
 import { RecordResumeSelectionDto } from './dto/record-resume-selection.dto';
 
 @Controller('applications')
@@ -33,6 +34,14 @@ export class ApplicationsController {
     @Body() dto: ExtractApplicationSkillsDto,
   ) {
     return this.applicationsService.extractSkills(user.uid, dto);
+  }
+
+  @Post('generate-answer')
+  async generateAnswer(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: GenerateApplicationAnswerDto,
+  ) {
+    return this.applicationsService.generateAnswer(user.uid, dto);
   }
 
   @Get('skills')

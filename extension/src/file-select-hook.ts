@@ -1,16 +1,88 @@
 const FILE_SELECT_HOOK_FLAG = '__liFacilitatorFileSelectHook';
+const LIF_DOWNLOAD_ROOT = 'Lif';
 
 function isResumeFileName(fileName: string): boolean {
   return /\.(docx|pdf|doc|rtf)$/i.test(fileName.trim());
 }
 
+function sanitizeCapturedFolderName(folderName: string): string {
+  return folderName.trim().replace(/[\\/:*?"<>|]/g, '_');
+}
+
+function isDateFolderName(folderName: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(folderName.trim());
+}
+
 function normalizeResumeFolderName(folderName: string): string | null {
   const trimmed = folderName.trim();
-  if (!/^Resume_/i.test(trimmed)) {
+  if (!trimmed) {
     return null;
   }
 
-  return trimmed.replace(/[\\/:*?"<>|]/g, '_');
+  // Legacy server-style folders: Resume_<applicationId>
+  if (/^Resume_/i.test(trimmed)) {
+    return sanitizeCapturedFolderName(trimmed);
+  }
+
+  // Legacy flat folders: YYYY-MM-DD_Company_Role
+  if (/^\d{4}-\d{2}-\d{2}_/.test(trimmed)) {
+    return sanitizeCapturedFolderName(trimmed);
+  }
+
+  // Current job folder: Company_Role (under Lif/<date>/)
+  if (trimmed.includes('_') && !isDateFolderName(trimmed)) {
+    return sanitizeCapturedFolderName(trimmed);
+  }
+
+  return null;
+}
+
+function folderNameFromPathParts(parts: string[]): string | null {
+  if (parts.length < 2) {
+    return null;
+  }
+
+  const fileIndex = parts.length - 1;
+  const parentFolder = parts[fileIndex - 1];
+  const lifIndex = parts.findIndex(
+    (segment) => segment.toLowerCase() === LIF_DOWNLOAD_ROOT.toLowerCase(),
+  );
+
+  // Lif/<profile>/<date>/<company_role>/<file>
+  if (lifIndex >= 0 && lifIndex + 3 === fileIndex - 1) {
+    const profileFolder = parts[lifIndex + 1];
+    const dateFolder = parts[lifIndex + 2];
+    const jobFolder = parts[lifIndex + 3];
+    if (profileFolder && isDateFolderName(dateFolder)) {
+      const normalizedJobFolder = normalizeResumeFolderName(jobFolder);
+      if (normalizedJobFolder) {
+        return `${sanitizeCapturedFolderName(profileFolder)}/${dateFolder}/${normalizedJobFolder}`;
+      }
+    }
+  }
+
+  // Legacy: Lif/<date>/<company_role>/<file>
+  if (lifIndex >= 0 && lifIndex + 2 === fileIndex - 1) {
+    const dateFolder = parts[lifIndex + 1];
+    const jobFolder = parts[lifIndex + 2];
+    if (isDateFolderName(dateFolder)) {
+      const normalizedJobFolder = normalizeResumeFolderName(jobFolder);
+      if (normalizedJobFolder) {
+        return `${dateFolder}/${normalizedJobFolder}`;
+      }
+    }
+  }
+
+  // Lif/<legacy-or-job-folder>/<file>
+  if (lifIndex >= 0 && lifIndex < fileIndex - 1) {
+    const lifJobFolder = parts[lifIndex + 1];
+    const normalizedLifFolder = normalizeResumeFolderName(lifJobFolder);
+    if (normalizedLifFolder) {
+      return normalizedLifFolder;
+    }
+  }
+
+  return normalizeResumeFolderName(parentFolder);
 }
 
 function parseResumeFolderFromInput(
@@ -25,26 +97,21 @@ function parseResumeFolderFromInput(
   const relativePath = file.webkitRelativePath?.trim();
   if (relativePath) {
     const parts = relativePath.split(/[/\\]/).filter(Boolean);
-    if (parts.length >= 2) {
-      const folderName = normalizeResumeFolderName(parts[parts.length - 2]);
-      if (folderName) {
-        return { resumeFolderName: folderName, resumeFileName: parts[parts.length - 1] };
-      }
+    const folderName = folderNameFromPathParts(parts);
+    if (folderName) {
+      return { resumeFolderName: folderName, resumeFileName: parts[parts.length - 1] };
     }
   }
 
   const value = input.value?.trim() || '';
   if (value) {
     const segments = value.split(/[/\\]/).filter(Boolean);
-    const folderIndex = segments.findIndex((segment) => /^Resume_/i.test(segment));
-    if (folderIndex >= 0) {
-      const folderName = normalizeResumeFolderName(segments[folderIndex]);
-      if (folderName) {
-        return {
-          resumeFolderName: folderName,
-          resumeFileName: segments[segments.length - 1] || fileName,
-        };
-      }
+    const folderName = folderNameFromPathParts(segments);
+    if (folderName) {
+      return {
+        resumeFolderName: folderName,
+        resumeFileName: segments[segments.length - 1] || fileName,
+      };
     }
   }
 

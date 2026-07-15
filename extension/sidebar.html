@@ -129,6 +129,33 @@
         <div id="company-bullets-list" class="company-bullets-list"></div>
       </div>
 
+      <div id="qa-section" class="field-group">
+        <div class="field-label-row">
+          <label class="field-label" for="qa-question">Application Question</label>
+          <button
+            id="btn-generate-answer"
+            type="button"
+            class="btn btn-secondary btn-generate-answer"
+            disabled
+          >
+            Generate
+          </button>
+        </div>
+        <textarea
+          id="qa-question"
+          class="field-textarea"
+          rows="3"
+          placeholder="Paste an application or screening question here..."
+        ></textarea>
+        <label class="field-label qa-answer-label" for="qa-answer">Answer</label>
+        <textarea
+          id="qa-answer"
+          class="field-textarea"
+          rows="6"
+          placeholder="Generated answer will appear here. You can edit it before pasting into the application."
+        ></textarea>
+      </div>
+
       <div id="job-cost-panel" class="job-cost-panel">
         <div class="job-cost-row">
           <span class="job-cost-label">Skill extraction</span>
@@ -137,6 +164,10 @@
         <div class="job-cost-row">
           <span class="job-cost-label">Resume bullets</span>
           <span id="job-cost-bullets" class="job-cost-value">$0.00</span>
+        </div>
+        <div class="job-cost-row">
+          <span class="job-cost-label">Application answers</span>
+          <span id="job-cost-answers" class="job-cost-value">$0.00</span>
         </div>
         <div class="job-cost-row job-cost-total">
           <span class="job-cost-label">Total</span>

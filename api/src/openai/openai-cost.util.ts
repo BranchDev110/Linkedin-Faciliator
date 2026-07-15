@@ -78,12 +78,16 @@ export function normalizeAiCostBreakdown(
   const normalized: ApplicationAiCostBreakdown = {};
   const skillExtraction = breakdown.skillExtraction;
   const resumeBullets = breakdown.resumeBullets;
+  const applicationAnswers = breakdown.applicationAnswers;
 
   if (typeof skillExtraction === 'number' && skillExtraction > 0) {
     normalized.skillExtraction = roundUsd(skillExtraction);
   }
   if (typeof resumeBullets === 'number' && resumeBullets > 0) {
     normalized.resumeBullets = roundUsd(resumeBullets);
+  }
+  if (typeof applicationAnswers === 'number' && applicationAnswers > 0) {
+    normalized.applicationAnswers = roundUsd(applicationAnswers);
   }
 
   return normalized;
@@ -94,7 +98,9 @@ export function sumTrackedAiCostUsd(
 ): number {
   const normalized = normalizeAiCostBreakdown(breakdown);
   return roundUsd(
-    (normalized.skillExtraction ?? 0) + (normalized.resumeBullets ?? 0),
+    (normalized.skillExtraction ?? 0) +
+      (normalized.resumeBullets ?? 0) +
+      (normalized.applicationAnswers ?? 0),
   );
 }
 

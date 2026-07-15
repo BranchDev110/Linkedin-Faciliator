@@ -22,6 +22,11 @@ import {
   ExtractApplicationSkillsResponse,
 } from './dto/extract-skills.dto';
 import { JdSkillExtractionService } from './jd-skill-extraction.service';
+import { ApplicationAnswerService } from './application-answer.service';
+import {
+  GenerateApplicationAnswerDto,
+  GenerateApplicationAnswerResponse,
+} from './dto/generate-answer.dto';
 import { JobRecord, JobSummary, JobsService } from '../jobs/jobs.service';
 import { normalizeApplicationStatus } from './application-status.util';
 import { resolveLinkedInJobId } from './linkedin-job-id.util';
@@ -67,6 +72,7 @@ export class ApplicationsService {
     private applicationModel: Model<ApplicationDocument>,
     private profilesService: ProfilesService,
     private jdSkillExtractionService: JdSkillExtractionService,
+    private applicationAnswerService: ApplicationAnswerService,
     private jobsService: JobsService,
   ) {}
 
@@ -656,6 +662,50 @@ export class ApplicationsService {
       applicationAiCostUsd: applicationResult.applicationAiCostUsd,
       applicationId: applicationResult.application.id,
       application: applicationResult.application,
+    };
+  }
+
+  async generateAnswer(
+    userId: string,
+    dto: GenerateApplicationAnswerDto,
+  ): Promise<GenerateApplicationAnswerResponse> {
+    const question = dto.question?.trim() || '';
+    const jobDescription = dto.jobDescription?.trim() || '';
+
+    if (!question) {
+      throw new BadRequestException('A question is required.');
+    }
+    if (!jobDescription) {
+      throw new BadRequestException(
+        'A job description is required to generate an answer.',
+      );
+    }
+
+    const profileId = dto.profileId?.trim()
+      ? dto.profileId.trim()
+      : (await this.profilesService.getOrCreateForUser(userId)).id;
+    const profile = await this.profilesService.findOne(userId, profileId);
+
+    const result = await this.applicationAnswerService.generateAnswer(profile, {
+      question,
+      jobDescription,
+      targetJobCompany: dto.targetJobCompany,
+      targetJobTitle: dto.targetJobTitle,
+    });
+
+    let applicationAiCostUsd: number | undefined;
+    if (dto.applicationId?.trim() && result.usage) {
+      applicationAiCostUsd = await this.recordAiCost(
+        dto.applicationId.trim(),
+        userId,
+        'applicationAnswers',
+        result.usage,
+      );
+    }
+
+    return {
+      ...result,
+      applicationAiCostUsd,
     };
   }
 

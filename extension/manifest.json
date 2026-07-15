@@ -9,12 +9,13 @@
     "tabs",
     "scripting",
     "alarms",
-    "cookies"
+    "cookies",
+    "downloads"
   ],
   "host_permissions": [
     "https://www.linkedin.com/*",
     "https://linkedin.com/*",
-    "https://83.229.67.146:3001/*",
+    "https://lif.remotepairnet.net/*",
     "http://localhost:5173/*",
     "http://localhost:3001/*",
     "http://localhost:3002/*",
@@ -70,7 +71,7 @@
     },
     {
       "matches": [
-        "https://83.229.67.146:3001/*",
+        "https://lif.remotepairnet.net/*",
         "http://localhost:5173/*",
         "http://localhost:3001/*",
         "http://localhost:3002/*"

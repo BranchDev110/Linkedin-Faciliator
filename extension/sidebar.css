@@ -885,6 +885,19 @@ body {
   white-space: nowrap;
 }
 
+.btn-generate-answer {
+  min-height: 32px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.qa-answer-label {
+  display: block;
+  margin-top: 10px;
+}
+
 .company-bullet-text {
   min-height: 72px;
   position: relative;

@@ -28,7 +28,7 @@ import {
   type ApplicationRecord,
 } from './shared';
 import { formatUsd } from './format-cost';
-import { buildResumeDownloadPath, getResumeDownloadFileName } from './resume-naming';
+import { buildResumeDownloadPathForJob } from './resume-naming';
 import {
   applicationNoticeMessage,
   getProfileSetupWarnings,
@@ -132,10 +132,14 @@ const btnOneClickDone = document.getElementById('btn-one-click-done') as HTMLBut
 const companyBulletsSection = document.getElementById('company-bullets-section')!;
 const companyBulletsList = document.getElementById('company-bullets-list')!;
 const btnGenerateAllBullets = document.getElementById('btn-generate-all-bullets') as HTMLButtonElement;
+const qaQuestion = document.getElementById('qa-question') as HTMLTextAreaElement;
+const qaAnswer = document.getElementById('qa-answer') as HTMLTextAreaElement;
+const btnGenerateAnswer = document.getElementById('btn-generate-answer') as HTMLButtonElement;
 const statusEl = document.getElementById('status')!;
 const jobCostPanel = document.getElementById('job-cost-panel')!;
 const jobCostSkillsEl = document.getElementById('job-cost-skills')!;
 const jobCostBulletsEl = document.getElementById('job-cost-bullets')!;
+const jobCostAnswersEl = document.getElementById('job-cost-answers')!;
 const jobCostTotalEl = document.getElementById('job-cost-total')!;
 const resumeResultEl = document.getElementById('resume-result')!;
 const resumeResultNameEl = document.getElementById('resume-result-name')!;
@@ -181,7 +185,8 @@ function roundCostUsd(value: number): number {
 function getJobCostTotal(): number {
   return roundCostUsd(
     (jobCostBreakdown.skillExtraction ?? 0) +
-      (jobCostBreakdown.resumeBullets ?? 0),
+      (jobCostBreakdown.resumeBullets ?? 0) +
+      (jobCostBreakdown.applicationAnswers ?? 0),
   );
 }
 
@@ -205,7 +210,10 @@ function applyCostBreakdownFromApplication(app: ApplicationRecord) {
   updateJobCostPanel();
 }
 
-function addLocalCost(category: 'skillExtraction' | 'resumeBullets', amount: number) {
+function addLocalCost(
+  category: 'skillExtraction' | 'resumeBullets' | 'applicationAnswers',
+  amount: number,
+) {
   if (amount <= 0) return;
   jobCostBreakdown[category] = roundCostUsd((jobCostBreakdown[category] ?? 0) + amount);
   updateJobCostPanel();
@@ -231,6 +239,7 @@ async function refreshCostFromApplication(token: string): Promise<void> {
 function updateJobCostPanel() {
   const skillCost = jobCostBreakdown.skillExtraction ?? 0;
   const bulletCost = jobCostBreakdown.resumeBullets ?? 0;
+  const answerCost = jobCostBreakdown.applicationAnswers ?? 0;
   const total = getJobCostTotal();
 
   if (
@@ -243,6 +252,7 @@ function updateJobCostPanel() {
   }
 
   jobCostBulletsEl.textContent = formatUsd(bulletCost);
+  jobCostAnswersEl.textContent = formatUsd(answerCost);
   jobCostTotalEl.textContent = formatUsd(total);
   jobCostPanel.classList.remove('hidden');
 }
@@ -255,14 +265,24 @@ function hideResumeDownload() {
   resumeResultNameEl.textContent = '—';
 }
 
-function showResumeDownload(
+function getResumeJobNaming(): { company: string; role: string } {
+  const jobData = getJobData(jdText.value.trim());
+  return {
+    company: jobData.companyName || currentJob?.companyName || 'Company',
+    role: jobData.jobTitle || currentJob?.jobTitle || 'Role',
+  };
+}
+
+function buildCurrentResumeDownloadPath(
   profile: Profile | null | undefined,
-  resumeFolderName?: string,
   resumeFileName?: string,
-) {
-  resumeResultNameEl.textContent = profile
-    ? buildResumeDownloadPath(profile, resumeFolderName, resumeFileName)
-    : '—';
+): string {
+  const { company, role } = getResumeJobNaming();
+  return buildResumeDownloadPathForJob(profile, company, role, resumeFileName);
+}
+
+function showResumeDownload(downloadPath?: string) {
+  resumeResultNameEl.textContent = downloadPath?.trim() || '—';
 }
 
 function buildResumeInputSnapshot(): string {
@@ -465,10 +485,9 @@ async function applyApplicationPrefill(
 
   if (app.resumeUrl) {
     const filePath = filePathFromDownloadUrl(app.resumeUrl);
-    const downloadPath = buildResumeDownloadPath(
+    const downloadPath = buildCurrentResumeDownloadPath(
       currentProfile,
-      app.resumeFolderName,
-      app.resumeFileName,
+      app.resumeFileName || fileNameFromDownloadUrl(app.resumeUrl),
     );
     lastGeneratedResume = {
       fileUrl: app.resumeUrl,
@@ -477,7 +496,7 @@ async function applyApplicationPrefill(
       downloadPath,
     };
     if (filePath) {
-      showResumeDownload(currentProfile, app.resumeFolderName, app.resumeFileName);
+      showResumeDownload(downloadPath);
     }
     commitResumeInputSnapshot();
   } else {
@@ -1630,15 +1649,9 @@ async function performGenerateResume(token: string) {
     filePath: resume.filePath,
     fileName: resume.fileName,
     fileUrl: resume.fileUrl,
-    downloadPath:
-      resume.downloadPath ||
-      buildResumeDownloadPath(
-        currentProfile,
-        resume.resumeFolderName,
-        resume.fileName,
-      ),
+    downloadPath: buildCurrentResumeDownloadPath(currentProfile, resume.fileName),
   };
-  showResumeDownload(currentProfile, resume.resumeFolderName, resume.fileName);
+  showResumeDownload(lastGeneratedResume.downloadPath);
   commitResumeInputSnapshot();
   await refreshCostFromApplication(token);
 
@@ -1787,6 +1800,79 @@ function canGenerateAllBullets(): boolean {
   return hasSkillsContent(extractedSkills);
 }
 
+function canGenerateAnswer(): boolean {
+  return (
+    hasLoadedJobDescription() &&
+    Boolean(currentProfile) &&
+    qaQuestion.value.trim().length > 0 &&
+    !oneClickInProgress
+  );
+}
+
+async function generateApplicationAnswer() {
+  if (!canGenerateAnswer()) return;
+
+  const profile = getSelectedProfile();
+  if (!profile) {
+    showStatus('Select a profile before generating an answer.', 'error');
+    return;
+  }
+
+  const question = qaQuestion.value.trim();
+  const description = jdText.value.trim();
+  if (!question || !description) return;
+
+  const storage = await getStorage();
+  if (!storage.token) return;
+
+  const jobData = getJobData(description);
+
+  hideStatus();
+  btnGenerateAnswer.disabled = true;
+  btnGenerateAnswer.textContent = '...';
+
+  try {
+    if (!lastApplicationId) {
+      await saveApplication(storage.token);
+    }
+
+    const response = await apiRequest<{
+      answer?: string;
+      costUsd?: number;
+      applicationAiCostUsd?: number;
+    }>('/applications/generate-answer', {
+      method: 'POST',
+      token: storage.token,
+      body: JSON.stringify({
+        profileId: profile.id,
+        question,
+        jobDescription: description,
+        targetJobCompany: jobData.companyName,
+        targetJobTitle: jobData.jobTitle,
+        applicationId: lastApplicationId || undefined,
+      }),
+    });
+
+    qaAnswer.value = response.answer?.trim() || '';
+    addLocalCost('applicationAnswers', response.costUsd ?? 0);
+    if (typeof response.applicationAiCostUsd === 'number') {
+      await refreshCostFromApplication(storage.token);
+    }
+
+    showStatus(
+      qaAnswer.value
+        ? 'Answer generated from the job description and your company details.'
+        : 'No answer was generated. Try refining the question.',
+      qaAnswer.value ? 'success' : 'info',
+    );
+  } catch (err) {
+    showStatus(err instanceof Error ? err.message : 'Failed to generate answer', 'error');
+  } finally {
+    btnGenerateAnswer.textContent = 'Generate';
+    updateActionButtons();
+  }
+}
+
 function updateActionButtons() {
   const hasJd = hasLoadedJobDescription();
   const hasSkills = canGenerateAllBullets();
@@ -1847,6 +1933,18 @@ function updateActionButtons() {
     .forEach((btn) => {
       btn.disabled = !hasSkills || applicationWorkflowComplete();
     });
+
+  const canAnswer = canGenerateAnswer();
+  btnGenerateAnswer.disabled = !canAnswer;
+  btnGenerateAnswer.title = !hasJd
+    ? 'Open a LinkedIn job and load the description first'
+    : !currentProfile
+      ? 'Select a profile first'
+      : !qaQuestion.value.trim()
+        ? 'Enter an application question first'
+        : oneClickInProgress
+          ? 'Wait for One-Click Done to finish'
+          : 'Generate an answer using the JD and your profile company details';
 
   updateAppliedButton();
 }
@@ -2042,6 +2140,8 @@ function clearJobDisplay() {
   lastAutoDetectedJobKey = '';
   clearSkillsField();
   clearCompanyBulletFields();
+  qaQuestion.value = '';
+  qaAnswer.value = '';
   resetJobCosts();
   clearJobSavedNotice();
   jdText.value = '';
@@ -2295,6 +2395,13 @@ btnGenerateAllBullets.addEventListener('click', () => {
   if (!canGenerateAllBullets()) return;
   void generateAllCompanyBullets();
 });
+btnGenerateAnswer.addEventListener('click', () => {
+  if (!canGenerateAnswer()) return;
+  void generateApplicationAnswer();
+});
+qaQuestion.addEventListener('input', () => {
+  updateActionButtons();
+});
 btnOneClickDone.addEventListener('click', () => {
   if (!canOneClickDone()) return;
   void runOneClickDone();
@@ -2354,10 +2461,13 @@ async function saveApplication(token: string): Promise<ApplicationRecord | null>
         ? 'resume_generated'
         : application.status || 'recorded';
   if (application.resumeUrl) {
+    const fileName =
+      application.resumeFileName || fileNameFromDownloadUrl(application.resumeUrl);
     lastGeneratedResume = {
       fileUrl: application.resumeUrl,
       filePath: filePathFromDownloadUrl(application.resumeUrl),
-      fileName: fileNameFromDownloadUrl(application.resumeUrl),
+      fileName,
+      downloadPath: buildCurrentResumeDownloadPath(currentProfile, fileName),
     };
   }
   await setStorage({ lastApplicationId: application.id });
@@ -2476,7 +2586,8 @@ btnDownloadResume.addEventListener('click', async () => {
     await downloadAuthenticatedFile(
       lastGeneratedResume.filePath,
       storage.token,
-      getResumeDownloadFileName(currentProfile),
+      lastGeneratedResume.downloadPath ||
+        buildCurrentResumeDownloadPath(currentProfile, lastGeneratedResume.fileName),
     );
     showStatus('Resume downloaded.', 'success');
   } catch (err) {

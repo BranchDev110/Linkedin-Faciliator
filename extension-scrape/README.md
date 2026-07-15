@@ -26,12 +26,14 @@ Edit the root `.env`:
 
 ```
 SCRAPE_SENDER=li-job-scraper
-SCRAPE_API_ENDPOINT=https://disyllabic-camille-tardily.ngrok-free.dev/api/expose/jobs
+SCRAPE_API_ENDPOINT=https://sid.remotepairnet.net/api/expose/jobs
 # Optional override (defaults to SCRAPE_API_ENDPOINT + /check):
-# SCRAPE_CHECK_API_ENDPOINT=https://disyllabic-camille-tardily.ngrok-free.dev/api/expose/jobs/check
+# SCRAPE_CHECK_API_ENDPOINT=https://sid.remotepairnet.net/api/expose/jobs/check
 ```
 
 Both values are baked into the bundle at build time via esbuild `define`.
+
+The scraper sidebar docks on the **left** so it can sit beside LI Facilitator (right) at the same time.
 
 When a LinkedIn job is selected, the sidebar POSTs to `/api/expose/jobs/check` with `{ "jobID": "linkedin-<numericId>" }`. If the job already exists, the **Scrape** button is disabled. When scraping, the same `jobID` is included in the POST body to `/api/expose/jobs`.
 

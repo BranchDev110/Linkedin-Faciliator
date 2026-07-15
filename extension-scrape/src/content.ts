@@ -28,6 +28,8 @@ if (!shouldInitialize()) {
   let notifyTimer: ReturnType<typeof setTimeout> | null = null;
   let lastPublishedKey = '';
   let lastPublishedDescriptionLength = 0;
+  let lastPublishedTitle = '';
+  let lastPublishedCompany = '';
 
   function jobPublishKey(job: NonNullable<Awaited<ReturnType<typeof extractJob>>>): string {
     return (
@@ -38,22 +40,56 @@ if (!shouldInitialize()) {
     );
   }
 
+  function normalizeTitle(title: string | undefined): string {
+    const value = title?.trim() || '';
+    if (!value || value.toLowerCase() === 'unknown position') return '';
+    return value;
+  }
+
+  function normalizeCompany(company: string | undefined): string {
+    const value = company?.trim() || '';
+    if (!value || value.toLowerCase() === 'unknown company') return '';
+    return value;
+  }
+
+  function recordPublishedState(
+    job: NonNullable<Awaited<ReturnType<typeof extractJob>>>,
+    descriptionLength: number,
+  ): void {
+    lastPublishedKey = jobPublishKey(job);
+    lastPublishedDescriptionLength = descriptionLength;
+    lastPublishedTitle = normalizeTitle(job.jobTitle);
+    lastPublishedCompany = normalizeCompany(job.companyName);
+  }
+
   function shouldPublishJob(job: NonNullable<Awaited<ReturnType<typeof extractJob>>>): boolean {
     const key = jobPublishKey(job);
     const descriptionLength = job.jobDescription?.trim().length || 0;
+    const title = normalizeTitle(job.jobTitle);
+    const company = normalizeCompany(job.companyName);
 
     if (!key) {
-      return descriptionLength > 0;
+      return descriptionLength > 0 || Boolean(title) || Boolean(company);
     }
 
     if (key !== lastPublishedKey) {
-      lastPublishedKey = key;
-      lastPublishedDescriptionLength = descriptionLength;
+      recordPublishedState(job, descriptionLength);
       return true;
     }
 
     if (descriptionLength > lastPublishedDescriptionLength + 30) {
-      lastPublishedDescriptionLength = descriptionLength;
+      recordPublishedState(job, descriptionLength);
+      return true;
+    }
+
+    // Title and company often render after the job id/description on SPA navigation.
+    if (title && title !== lastPublishedTitle) {
+      recordPublishedState(job, descriptionLength);
+      return true;
+    }
+
+    if (company && company !== lastPublishedCompany) {
+      recordPublishedState(job, descriptionLength);
       return true;
     }
 
@@ -88,6 +124,8 @@ if (!shouldInitialize()) {
     w[LAST_URL_KEY] = currentUrl;
     lastPublishedKey = '';
     lastPublishedDescriptionLength = 0;
+    lastPublishedTitle = '';
+    lastPublishedCompany = '';
     notifyJobUpdate();
   }
 
