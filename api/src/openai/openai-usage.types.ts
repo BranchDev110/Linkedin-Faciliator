@@ -6,11 +6,15 @@ export interface OpenAiUsageRecord {
   costUsd: number;
 }
 
-export type AiCostCategory = 'skillExtraction' | 'resumeBullets';
+export type AiCostCategory =
+  | 'skillExtraction'
+  | 'resumeBullets'
+  | 'applicationAnswers';
 
 export interface ApplicationAiCostBreakdown {
   skillExtraction?: number;
   resumeBullets?: number;
+  applicationAnswers?: number;
 }
 
 export interface OpenAiCompletionUsage {

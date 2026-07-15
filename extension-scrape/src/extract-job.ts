@@ -829,10 +829,24 @@ function extractPostedAt(root: Element): string {
 }
 
 function extractJobTitle(root: Element): string {
-  // Most reliable: the topcard title anchor's <h2> child text.
-  // LinkedIn re-renders this on every SPA job navigation.
-  const topcardJobId = getLinkedInTopcardJobId();
+  const unifiedTitle = queryDeepTextFromSelectors(
+    LEGACY_UNIFIED_TOP_CARD_SELECTORS.title,
+    root,
+  );
+  if (unifiedTitle.length > 2 && unifiedTitle.length < 250) return unifiedTitle;
 
+  const titleSelectors = [
+    '[componentkey^="JobDetails_"] a[href*="/jobs/view/"]',
+    'a[href*="/jobs/view/"]',
+  ];
+  for (const selector of titleSelectors) {
+    const link = root.querySelector(selector);
+    const title = cleanText(link?.textContent || '');
+    if (title.length > 2 && title.length < 250) return title;
+  }
+
+  // Topcard title anchor — LinkedIn re-renders this on every SPA job navigation.
+  const topcardJobId = getLinkedInTopcardJobId();
   const titleAnchors = queryDeepAll(TOPCARD_TITLE_ANCHOR_SELECTOR, root);
   for (const anchor of titleAnchors) {
     if (topcardJobId && !anchorMatchesJobId(anchor, topcardJobId)) continue;
@@ -841,7 +855,6 @@ function extractJobTitle(root: Element): string {
     const headingText = cleanText(heading?.textContent || '');
     if (headingText.length > 2 && headingText.length < 250) return headingText;
 
-    // Anchor might wrap text directly (no nested h2).
     const directText = cleanText(anchor.textContent || '');
     if (directText.length > 2 && directText.length < 250) return directText;
 
@@ -851,27 +864,11 @@ function extractJobTitle(root: Element): string {
     }
   }
 
-  const unifiedTitle = queryDeepTextFromSelectors(
-    LEGACY_UNIFIED_TOP_CARD_SELECTORS.title,
-    root,
-  );
-  if (unifiedTitle.length > 2 && unifiedTitle.length < 250) return unifiedTitle;
+  const legacyTitle =
+    queryDeepText('[data-test-job-details-header] h1', root) ||
+    queryDeepText('h1', root);
 
-  // SDUI fallback — use shadow-walking queryDeep (the prior `root.querySelector`
-  // could not reach into shadow roots and missed the title entirely on new jobs).
-  const sduiTitle = queryDeepText(
-    '[componentkey^="JobDetails_"] h1, [componentkey^="JobDetails_"] a[href*="/jobs/view/"]',
-    root,
-  );
-  const sduiCleaned = cleanText(sduiTitle);
-  if (sduiCleaned.length > 2 && sduiCleaned.length < 250) return sduiCleaned;
-
-  // Generic shadow-walking fallback: any <h1> inside the job-details root.
-  const deepH1 = queryDeepText('h1', root);
-  const deepH1Cleaned = cleanText(deepH1);
-  if (deepH1Cleaned.length > 2 && deepH1Cleaned.length < 250) return deepH1Cleaned;
-
-  return cleanText(deepH1);
+  return cleanText(legacyTitle);
 }
 
 function extractCompanyName(root: Element): string {

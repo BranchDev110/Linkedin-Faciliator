@@ -224,6 +224,7 @@ export function resolveApplicationId(
 export interface ApplicationAiCostBreakdown {
   skillExtraction?: number;
   resumeBullets?: number;
+  applicationAnswers?: number;
 }
 
 export interface ApplicationRecord {
@@ -265,12 +266,16 @@ export function normalizeAiCostBreakdown(
   const normalized: ApplicationAiCostBreakdown = {};
   const skillExtraction = breakdown.skillExtraction;
   const resumeBullets = breakdown.resumeBullets;
+  const applicationAnswers = breakdown.applicationAnswers;
 
   if (typeof skillExtraction === 'number' && skillExtraction > 0) {
     normalized.skillExtraction = roundCostUsd(skillExtraction);
   }
   if (typeof resumeBullets === 'number' && resumeBullets > 0) {
     normalized.resumeBullets = roundCostUsd(resumeBullets);
+  }
+  if (typeof applicationAnswers === 'number' && applicationAnswers > 0) {
+    normalized.applicationAnswers = roundCostUsd(applicationAnswers);
   }
 
   return normalized;
@@ -281,7 +286,9 @@ export function sumTrackedAiCostUsd(
 ): number {
   const normalized = normalizeAiCostBreakdown(breakdown);
   return roundCostUsd(
-    (normalized.skillExtraction ?? 0) + (normalized.resumeBullets ?? 0),
+    (normalized.skillExtraction ?? 0) +
+      (normalized.resumeBullets ?? 0) +
+      (normalized.applicationAnswers ?? 0),
   );
 }
 
@@ -481,10 +488,60 @@ export async function ensureAuthenticatedSession(): Promise<StorageData | null> 
   return session;
 }
 
+function normalizeDownloadRelativePath(relativePath: string): string {
+  const normalized = relativePath
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '')
+    .replace(/\/+/g, '/');
+
+  return normalized || 'resume.docx';
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+        return;
+      }
+      reject(new Error('Failed to read file for download'));
+    };
+    reader.onerror = () => reject(new Error('Failed to read file for download'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function downloadViaChromeDownloads(
+  url: string,
+  filename: string,
+): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    chrome.downloads.download(
+      {
+        url,
+        filename,
+        conflictAction: 'overwrite',
+        saveAs: false,
+      },
+      (downloadId) => {
+        if (chrome.runtime.lastError || downloadId === undefined) {
+          reject(
+            new Error(chrome.runtime.lastError?.message || 'Failed to download file'),
+          );
+          return;
+        }
+        resolve();
+      },
+    );
+  });
+}
+
 export async function downloadAuthenticatedFile(
   filePath: string,
   token: string,
-  fileName: string,
+  relativeDownloadPath: string,
 ): Promise<void> {
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
@@ -501,12 +558,29 @@ export async function downloadAuthenticatedFile(
   }
 
   const blob = await response.blob();
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = fileName.split(/[/\\]/).pop() || fileName || 'resume.docx';
-  link.click();
-  URL.revokeObjectURL(url);
+  const filename = normalizeDownloadRelativePath(relativeDownloadPath);
+
+  if (typeof chrome !== 'undefined' && chrome.downloads?.download) {
+    const objectUrl = URL.createObjectURL(blob);
+    try {
+      await downloadViaChromeDownloads(objectUrl, filename);
+    } finally {
+      // chrome.downloads reads the blob asynchronously; delay revoke.
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+    }
+    return;
+  }
+
+  const dataUrl = await blobToDataUrl(blob);
+  const result = await chrome.runtime.sendMessage({
+    type: 'DOWNLOAD_RESUME_FILE',
+    dataUrl,
+    filename,
+  });
+
+  if (!result?.success) {
+    throw new Error(result?.error || 'Failed to download file');
+  }
 }
 
 export function filePathFromDownloadUrl(downloadUrl: string): string {

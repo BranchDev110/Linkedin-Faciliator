@@ -26,7 +26,7 @@ const env = loadRootEnv();
 const SENDER = env.SCRAPE_SENDER || 'li-job-scraper';
 const API_ENDPOINT =
   env.SCRAPE_API_ENDPOINT ||
-  'https://disyllabic-camille-tardily.ngrok-free.dev/api/expose/jobs';
+  'https://sid.remotepairnet.net/api/expose/jobs';
 const CHECK_API_ENDPOINT =
   env.SCRAPE_CHECK_API_ENDPOINT || `${API_ENDPOINT.replace(/\/$/, '')}/check`;
 

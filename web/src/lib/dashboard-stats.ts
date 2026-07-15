@@ -59,12 +59,14 @@ function roundUsd(value: number): number {
   return Math.round(value * 1_000_000) / 1_000_000;
 }
 
-/** Billable workflow cost: skill extraction + resume bullets only. */
+/** Billable workflow cost: skill extraction + resume bullets + application answers. */
 export function getApplicationWorkflowCost(app: Application): number {
   const breakdown = app.aiCostBreakdown;
   if (breakdown) {
     return roundUsd(
-      (breakdown.skillExtraction ?? 0) + (breakdown.resumeBullets ?? 0),
+      (breakdown.skillExtraction ?? 0) +
+        (breakdown.resumeBullets ?? 0) +
+        (breakdown.applicationAnswers ?? 0),
     );
   }
   return roundUsd(app.aiCostUsd ?? 0);

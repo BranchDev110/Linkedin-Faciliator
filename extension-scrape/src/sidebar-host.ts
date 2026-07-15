@@ -30,10 +30,11 @@ function ensurePageStyles(): void {
 
   const style = document.createElement('style');
   style.id = PAGE_STYLE_ID;
+  // Dock on the LEFT so LI Facilitator (right) and LI Job Scraper can both be open.
   style.textContent = `
     html.${SIDEBAR_OPEN_CLASS} body {
-      margin-right: ${SIDEBAR_WIDTH} !important;
-      transition: margin-right 0.25s ease;
+      margin-left: ${SIDEBAR_WIDTH} !important;
+      transition: margin-left 0.25s ease;
     }
   `;
   document.documentElement.appendChild(style);
@@ -67,7 +68,7 @@ function createHost(): {
     .toggle-btn {
       position: fixed;
       top: 10px;
-      right: 10px;
+      left: 10px;
       z-index: 2147483647;
       display: inline-flex;
       align-items: center;
@@ -76,21 +77,21 @@ function createHost(): {
       padding: 0 14px;
       border: none;
       border-radius: 999px;
-      background: #0a66c2;
+      background: #0f766e;
       color: #fff;
       font: 600 12px/1 Inter, -apple-system, BlinkMacSystemFont, sans-serif;
       cursor: pointer;
-      box-shadow: 0 4px 14px rgba(10, 102, 194, 0.35);
-      transition: right 0.25s ease, background 0.15s ease, transform 0.15s ease;
+      box-shadow: 0 4px 14px rgba(15, 118, 110, 0.35);
+      transition: left 0.25s ease, background 0.15s ease, transform 0.15s ease;
     }
 
     .toggle-btn:hover {
-      background: #004182;
+      background: #0d9488;
       transform: translateY(-1px);
     }
 
     .toggle-btn.open {
-      right: calc(${SIDEBAR_WIDTH} + 10px);
+      left: calc(${SIDEBAR_WIDTH} + 10px);
       background: #334155;
     }
 
@@ -108,14 +109,14 @@ function createHost(): {
     .panel {
       position: fixed;
       top: 0;
-      right: 0;
+      left: 0;
       width: ${SIDEBAR_WIDTH};
       height: 100vh;
       z-index: 2147483646;
       background: #f8fafc;
-      border-left: 1px solid #e2e8f0;
-      box-shadow: -8px 0 24px rgba(15, 23, 42, 0.12);
-      transform: translateX(100%);
+      border-right: 1px solid #e2e8f0;
+      box-shadow: 8px 0 24px rgba(15, 23, 42, 0.12);
+      transform: translateX(-100%);
       transition: transform 0.25s ease;
       display: flex;
       flex-direction: column;
@@ -186,7 +187,7 @@ function toggleSidebar(): void {
   }
 
   ui?.toggleBtn.classList.remove('stale');
-    ui?.toggleBtn.setAttribute('title', 'Toggle LI Job Scraper');
+  ui?.toggleBtn.setAttribute('title', 'Toggle LI Job Scraper');
   setSidebarOpen(!isOpen);
 }
 
@@ -246,7 +247,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 });
 
 window.addEventListener('message', (event) => {
-  if (event.data?.type !== 'LI_FACILITATOR_RELOAD_SIDEBAR') {
+  if (event.data?.type !== 'LI_JOB_SCRAPER_RELOAD_SIDEBAR') {
     return;
   }
 

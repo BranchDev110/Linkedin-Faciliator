@@ -135,6 +135,7 @@ export interface Application {
   aiCostBreakdown?: {
     skillExtraction?: number;
     resumeBullets?: number;
+    applicationAnswers?: number;
   };
   createdAt: string;
   appliedAt?: string;
