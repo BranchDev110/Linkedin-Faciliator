@@ -23,6 +23,18 @@ export interface ExtractedJob {
   companyLogoUrl?: string;
   applyMethod?: JobApplyMethod;
   postedAt?: string;
+  /** LinkedIn company page URL from the top-card company name link. */
+  companyLink?: string;
+  /** Fit-level preference chips, e.g. ["Remote", "Full-time"]. */
+  tags: string[];
+  /** Location on its own, without the work-type suffix `location` carries. */
+  primaryLocation?: string;
+  applicants?: JobApplicants;
+}
+
+export interface JobApplicants {
+  count: number;
+  text: string;
 }
 
 export type JobApplyMethod = 'easy' | 'offsite' | 'unknown';
@@ -1041,6 +1053,95 @@ function extractWorkTypePreferences(root: Element): string[] {
     .filter(Boolean);
 }
 
+const TERTIARY_DESCRIPTION_SELECTORS = [
+  '.job-details-jobs-unified-top-card__tertiary-description-container',
+  '.jobs-unified-top-card__tertiary-description-container',
+];
+
+function extractCompanyLink(root: Element): string {
+  const containers = [
+    ...queryDeepAll('.job-details-jobs-unified-top-card__company-name', root),
+    ...queryDeepAll('.jobs-unified-top-card__company-name', root),
+  ];
+
+  for (const container of containers) {
+    const anchors = container.querySelectorAll('a[href]');
+    for (const anchor of anchors) {
+      const href = anchor.getAttribute('href') || '';
+      const absolute = href.startsWith('http')
+        ? href
+        : `${window.location.origin}${href.startsWith('/') ? '' : '/'}${href}`;
+      const match = absolute.match(
+        /^https:\/\/(?:www\.)?linkedin\.com\/company\/[^/?#]+/i,
+      );
+      if (match) return match[0];
+    }
+  }
+
+  return '';
+}
+
+function extractJobTags(root: Element): string[] {
+  const container = queryDeep('.job-details-fit-level-preferences', root);
+  if (!container) return [];
+
+  const tags: string[] = [];
+  const seen = new Set<string>();
+
+  for (const button of container.querySelectorAll('button span.tvm__text')) {
+    const text = cleanText(getDeepText(button));
+    if (!text) continue;
+
+    const key = text.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    tags.push(text);
+  }
+
+  return tags;
+}
+
+function tertiaryDescriptionTexts(root: Element): string[] {
+  for (const selector of TERTIARY_DESCRIPTION_SELECTORS) {
+    const container = queryDeep(selector, root);
+    if (!container) continue;
+
+    const texts = Array.from(container.querySelectorAll('span.tvm__text'))
+      // LinkedIn nests emphasis spans inside the outer ones; keep the outer text.
+      .filter((span) => !span.parentElement?.closest('span.tvm__text'))
+      .map((span) => cleanText(span.textContent || ''))
+      // Drop the "·" separators LinkedIn renders as their own spans.
+      .filter((text) => text.length > 1 && !/^[·•\-–]+$/.test(text));
+
+    if (texts.length) return texts;
+  }
+
+  return [];
+}
+
+function extractPrimaryLocation(root: Element): string {
+  const [first] = tertiaryDescriptionTexts(root);
+  if (first && !isLocationMetaNoise(first)) return first;
+  return '';
+}
+
+function extractApplicants(root: Element): JobApplicants | undefined {
+  const texts = tertiaryDescriptionTexts(root);
+
+  for (let i = texts.length - 1; i >= 0; i -= 1) {
+    const text = texts[i];
+    if (!/applicant|clicked apply|people/i.test(text)) continue;
+
+    const match = text.replace(/,/g, '').match(/\d+/);
+    return {
+      count: match ? Number(match[0]) : 0,
+      text,
+    };
+  }
+
+  return undefined;
+}
+
 function extractLocation(root: Element): string {
   for (const selector of LEGACY_UNIFIED_TOP_CARD_SELECTORS.location) {
     const container = queryDeep(selector, root);
@@ -1194,6 +1295,10 @@ export async function extractJob(options: ExtractJobOptions = {}): Promise<Extra
   const companyLogoUrl = extractCompanyLogoUrl(root);
   const jobDescription = extractJobDescription(root);
   const postedAt = extractPostedAt(root);
+  const companyLink = extractCompanyLink(root);
+  const tags = extractJobTags(root);
+  const primaryLocation = extractPrimaryLocation(root);
+  const applicants = extractApplicants(root);
 
   if (!jobTitle && !companyName && !jobDescription) return null;
 
@@ -1224,5 +1329,9 @@ export async function extractJob(options: ExtractJobOptions = {}): Promise<Extra
     companyLogoUrl: companyLogoUrl || undefined,
     applyMethod,
     postedAt: postedAt || undefined,
+    companyLink: companyLink || undefined,
+    tags,
+    primaryLocation: primaryLocation || undefined,
+    applicants,
   };
 }

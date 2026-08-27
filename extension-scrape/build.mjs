@@ -22,14 +22,6 @@ function loadRootEnv() {
   return env;
 }
 
-const env = loadRootEnv();
-const SENDER = env.SCRAPE_SENDER || 'li-job-scraper';
-const API_ENDPOINT =
-  env.SCRAPE_API_ENDPOINT ||
-  'https://sid.remotepairnet.net/api/expose/jobs';
-const CHECK_API_ENDPOINT =
-  env.SCRAPE_CHECK_API_ENDPOINT || `${API_ENDPOINT.replace(/\/$/, '')}/check`;
-
 function originFromUrl(url) {
   try {
     const parsed = new URL(url);
@@ -39,7 +31,22 @@ function originFromUrl(url) {
   }
 }
 
-const API_ORIGIN = originFromUrl(API_ENDPOINT);
+const env = loadRootEnv();
+const SENDER = env.SCRAPE_SENDER || 'li-job-scraper';
+
+const DEFAULT_API_BASE_URL = 'https://athensai.remotepairnet.net';
+const configuredBase = (env.SCRAPE_API_ENDPOINT || '').trim();
+// SCRAPE_API_ENDPOINT is a base URL now; older configs point at a full endpoint
+// path, so fall back to that value's origin.
+const API_BASE_URL =
+  originFromUrl(configuredBase) ||
+  configuredBase.replace(/\/+$/, '') ||
+  DEFAULT_API_BASE_URL;
+const API_ENDPOINT = env.SCRAPE_INGEST_API_ENDPOINT || `${API_BASE_URL}/api/jobs/ingest`;
+const CHECK_API_ENDPOINT =
+  env.SCRAPE_CHECK_API_ENDPOINT || `${API_BASE_URL}/api/jobs/check`;
+
+const API_ORIGIN = originFromUrl(API_BASE_URL) || originFromUrl(API_ENDPOINT);
 
 const staticFiles = [
   'sidebar.html',
@@ -88,6 +95,7 @@ function copyStatic() {
 
 const define = {
   __SENDER__: JSON.stringify(SENDER),
+  __API_BASE_URL__: JSON.stringify(API_BASE_URL),
   __API_ENDPOINT__: JSON.stringify(API_ENDPOINT),
   __CHECK_API_ENDPOINT__: JSON.stringify(CHECK_API_ENDPOINT),
 };
@@ -104,7 +112,7 @@ const contentScriptBuild = {
   ...sharedBuildOptions,
   entryPoints: {
     content: 'src/content.ts',
-    'sidebar-host': 'src/sidebar-host.ts',
+    background: 'src/background.ts',
   },
   format: 'iife',
 };
@@ -124,7 +132,7 @@ async function build() {
     const contentCtx = await esbuild.context(contentScriptBuild);
     await Promise.all([moduleCtx.watch(), contentCtx.watch()]);
     console.log(
-      `Watching extension-scrape files (SENDER=${SENDER}, API_ENDPOINT=${API_ENDPOINT}, CHECK_API_ENDPOINT=${CHECK_API_ENDPOINT})...`,
+      `Watching extension-scrape files (SENDER=${SENDER}, API_BASE_URL=${API_BASE_URL}, API_ENDPOINT=${API_ENDPOINT}, CHECK_API_ENDPOINT=${CHECK_API_ENDPOINT})...`,
     );
   } else {
     await Promise.all([
@@ -132,7 +140,7 @@ async function build() {
       esbuild.build(contentScriptBuild),
     ]);
     console.log(
-      `extension-scrape built to dist/ (SENDER=${SENDER}, API_ENDPOINT=${API_ENDPOINT}, CHECK_API_ENDPOINT=${CHECK_API_ENDPOINT})`,
+      `extension-scrape built to dist/ (SENDER=${SENDER}, API_BASE_URL=${API_BASE_URL}, API_ENDPOINT=${API_ENDPOINT}, CHECK_API_ENDPOINT=${CHECK_API_ENDPOINT})`,
     );
   }
 }
