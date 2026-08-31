@@ -35,6 +35,28 @@ export interface IngestPayload {
   jobs: IngestJob[];
 }
 
+export interface IngestResult {
+  index?: number;
+  statusCode?: number;
+  success?: boolean;
+  created?: boolean;
+  duplicate?: boolean;
+  id?: string;
+  jobID?: string;
+  jobLink?: string;
+  reason?: string;
+  code?: string;
+  error?: string;
+}
+
+export interface IngestSummary {
+  total?: number;
+  created?: number;
+  duplicate?: number;
+  blocked?: number;
+  errors?: number;
+}
+
 export interface ScrapeResponse {
   success?: boolean;
   created?: boolean | number;
@@ -44,6 +66,8 @@ export interface ScrapeResponse {
   id?: string;
   message?: string;
   error?: string;
+  results?: IngestResult[];
+  summary?: IngestSummary;
 }
 
 export interface CheckJobResponse {

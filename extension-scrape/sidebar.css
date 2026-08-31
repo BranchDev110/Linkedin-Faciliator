@@ -13,6 +13,9 @@
   --success-bg: #dcfce7;
   --success-border: #16a34a;
   --success-text: #14532d;
+  --warning-bg: #fef3c7;
+  --warning-border: #d97706;
+  --warning-text: #78350f;
   --error-bg: #fee2e2;
   --error-border: #dc2626;
   --error-text: #7f1d1d;
@@ -34,6 +37,9 @@
     --success-bg: #14321f;
     --success-border: #22c55e;
     --success-text: #bbf7d0;
+    --warning-bg: #3a2a10;
+    --warning-border: #f59e0b;
+    --warning-text: #fde68a;
     --error-bg: #3b1616;
     --error-border: #ef4444;
     --error-text: #fecaca;
@@ -422,6 +428,12 @@ html, body {
   background: var(--success-bg);
   border-color: var(--success-border);
   color: var(--success-text);
+}
+
+.toast.warning {
+  background: var(--warning-bg);
+  border-color: var(--warning-border);
+  color: var(--warning-text);
 }
 
 .toast.error {

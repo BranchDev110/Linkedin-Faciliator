@@ -117,9 +117,9 @@ function setJobApplicants(text: string | undefined): void {
   jobApplicantsEl.classList.remove('hidden');
 }
 
-function showToast(message: string, kind: 'success' | 'error'): void {
+function showToast(message: string, kind: 'success' | 'warning' | 'error'): void {
   toastEl.textContent = message;
-  toastEl.classList.remove('hidden', 'success', 'error');
+  toastEl.classList.remove('hidden', 'success', 'warning', 'error');
   toastEl.classList.add(kind);
   toastEl.classList.remove('hidden');
 
@@ -131,6 +131,10 @@ function showToast(message: string, kind: 'success' | 'error'): void {
 
 function showError(message: string): void {
   showToast(message, 'error');
+}
+
+function showWarning(message: string): void {
+  showToast(message, 'warning');
 }
 
 // function isJobAlreadyHandled(): boolean {
@@ -520,16 +524,31 @@ async function sendToApi(): Promise<void> {
       // if (jobID) {
       //   jobExistsCache.set(jobID, true);
       // }
-      const duplicates = body?.duplicate === true ? 1 : body?.duplicates || 0;
-      const createdCount =
-        body?.created === true ? 1 : Number(body?.created ?? body?.inserted ?? 0);
+      // A single job is sent per request, so the first entry is the one to report.
+      const result = body?.results?.[0];
 
-      if (duplicates > 0 && createdCount === 0) {
-        showToast('Already in catalog — duplicate detected.', 'success');
-      } else if (createdCount > 0) {
-        showToast('Sent to server.', 'success');
+      if (result) {
+        if (result.success === false) {
+          showError(result.error || 'Server rejected the job.');
+        } else if (result.created === false && result.duplicate === true) {
+          showWarning(result.reason || 'Duplicate job — already in catalog.');
+        } else if (result.created === true) {
+          showToast('Successfully created.', 'success');
+        } else {
+          showToast('Server accepted the request.', 'success');
+        }
       } else {
-        showToast('Server accepted the request.', 'success');
+        const duplicates = body?.duplicate === true ? 1 : body?.duplicates || 0;
+        const createdCount =
+          body?.created === true ? 1 : Number(body?.created ?? body?.inserted ?? 0);
+
+        if (duplicates > 0 && createdCount === 0) {
+          showWarning('Already in catalog — duplicate detected.');
+        } else if (createdCount > 0) {
+          showToast('Successfully created.', 'success');
+        } else {
+          showToast('Server accepted the request.', 'success');
+        }
       }
     } else {
       const message =
